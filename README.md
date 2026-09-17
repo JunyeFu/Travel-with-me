@@ -362,3 +362,8 @@ AI 导入入口在顶部行程标签栏中与新建 `+` 并列显示；空工作
 2. 分享传播：只读短链接、复制到我的行程、撤销分享和打开统计。
 3. 交通方式模型升级：支持中转点/途经点，让组合交通能映射到真实分段路线。
 4. 数据同步：在 localStorage 基础上增加可选云端保存。
+
+## 本地目录约定
+
+- `D:\Agent	ravel_with_me` 是本项目唯一工作入口；并行任务 worktree 统一放在 `_worktrees/`（当前含 codex-separate-3d 工作线），合并后即删；历史备份归档 `_archive/`。两者经 `.git/info/exclude` 本地排除，不入库。
+- 2026-09-17 清理：移除工作区迁移遗留的 141 个孤儿 worktree（旧 Desktop 路径）与一次性 `ai/t_*` 分支；原 `travel_with_me-2d` 检出迁入 `_worktrees/codex-separate-3d`，25 个提交与未提交改动原样保留。
