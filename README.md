@@ -365,5 +365,5 @@ AI 导入入口在顶部行程标签栏中与新建 `+` 并列显示；空工作
 
 ## 本地目录约定
 
-- `D:\Agent	ravel_with_me` 是本项目唯一工作入口；并行任务 worktree 统一放在 `_worktrees/`（当前含 codex-separate-3d 工作线），合并后即删；历史备份归档 `_archive/`。两者经 `.git/info/exclude` 本地排除，不入库。
+- `D:\Agent\travel-with-me` 是本项目唯一工作入口（原名 `travel_with_me`，2026-09-19 改名）；并行任务 worktree 统一放在 `_worktrees/`（当前含 codex-separate-3d 工作线），合并后即删；历史备份归档 `_archive/`。两者经 `.git/info/exclude` 本地排除，不入库。
 - 2026-09-17 清理：移除工作区迁移遗留的 141 个孤儿 worktree（旧 Desktop 路径）与一次性 `ai/t_*` 分支；原 `travel_with_me-2d` 检出迁入 `_worktrees/codex-separate-3d`，25 个提交与未提交改动原样保留。
