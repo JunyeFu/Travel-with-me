@@ -594,16 +594,22 @@ app.get(TILE_PREFIX, async c => {
 
 // ─── 静态文件托管 ─────────────────────────────────────────
 // 只暴露 2D HTML 入口解析得到、且显式清单批准的运行时文件。
-app.get('/', serveStatic({ path: './index.html' }));
-app.get('/index.html', serveStatic({ path: './index.html' }));
+const revalidateStaticFile = (c, next) => {
+  c.header('cache-control', 'no-cache');
+  return next();
+};
+app.get('/', revalidateStaticFile, serveStatic({ path: './index.html' }));
+app.get('/index.html', revalidateStaticFile, serveStatic({ path: './index.html' }));
 const serveActive2DStylesheet = serveStatic({ root: './' });
 app.use('/css/*', (c, next) => {
+  c.header('cache-control', 'no-cache');
   const projectPath = projectPathFromRequestURL(c.req.url, 'css');
   if (!ACTIVE_2D_STYLESHEET_PATHS.has(projectPath)) return c.notFound();
   return serveActive2DStylesheet(c, next);
 });
 const serveActive2DJavaScript = serveStatic({ root: './' });
 app.use('/js/*', (c, next) => {
+  c.header('cache-control', 'no-cache');
   const projectPath = projectPathFromRequestURL(c.req.url);
   if (!ACTIVE_2D_JAVASCRIPT_PATHS.has(projectPath)) return c.notFound();
   return serveActive2DJavaScript(c, next);

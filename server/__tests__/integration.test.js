@@ -42,6 +42,14 @@ function cleanupTmp() {
 }
 
 describe('server integration', () => {
+  it('requires revalidation of unversioned browser modules and styles', async () => {
+    const app = await getApp({ RAG_ENABLED: 'false' });
+    for (const path of ['/', '/js/render/guide-preview-modal.js', '/css/layout.css']) {
+      const response = await app.request(path);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-cache');
+    }
+  });
   beforeEach(() => {
     testDirectory = mkdtempSync(join(tmpdir(), 'travel-with-me-rag-'));
     testDatabase = join(testDirectory, 'integration.db');
