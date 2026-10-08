@@ -141,7 +141,7 @@ function renderProgressRail() {
 
 function renderRepairPanel(events) {
   const unmatched = events.filter(event => !event.matched);
-  const event = unmatched.find(item => item.id === selectedRepairEventId) || unmatched[0];
+  const event = events.find(item => item.id === selectedRepairEventId) || unmatched[0];
   if (!event) {
     return '<aside class="guide-repair-panel complete"><strong>地点匹配已完成</strong><p>可以检查标题和备注后导入。</p></aside>';
   }
@@ -157,7 +157,7 @@ function renderRepairPanel(events) {
       <div class="guide-preview-search-results" data-state="${event.searching ? 'loading' : results.length ? 'ready' : event.searchError ? 'error' : 'idle'}">
         ${renderFallbackSearchResults(event, results)}
       </div>
-      <button type="button" class="guide-keep-unmatched ${event.keepUnmatched ? 'active' : ''}">${event.keepUnmatched ? '已决定保留未匹配' : '保留未匹配并继续'}</button>
+      ${event.matched ? '' : `<button type="button" class="guide-keep-unmatched ${event.keepUnmatched ? 'active' : ''}">${event.keepUnmatched ? '已决定保留未匹配' : '保留未匹配并继续'}</button>`}
     </aside>
   `;
 }
@@ -173,7 +173,7 @@ function renderActionMenu(event) {
         <span>时间</span>
         ${renderTimeSlotSelect(event)}
       </label>
-      ${event.matched ? '' : '<button type="button" class="guide-preview-search-toggle">搜索地点</button>'}
+      <button type="button" class="guide-preview-search-toggle">${event.matched ? '更换地点' : '搜索地点'}</button>
       <button type="button" class="guide-preview-delete" title="删除">删除</button>
     </div>
   `;

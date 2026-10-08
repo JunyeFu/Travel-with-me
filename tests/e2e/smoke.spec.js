@@ -1313,6 +1313,12 @@ test('desktop can import an AI guide through the preview flow', async ({ page, i
   const previewEvents = page.locator('.guide-preview-event');
   await previewEvents.nth(0).locator('.guide-preview-event-title-input').fill('S2 改名颐和园');
   await previewEvents.nth(0).locator('.guide-preview-event-note-input').fill('S2 预览备注已修正');
+  await previewEvents.nth(0).locator('.guide-preview-action-toggle').click();
+  await page.getByRole('button', { name: '更换地点', exact: true }).click();
+  await page.locator('.guide-preview-search-input').fill('测试书店');
+  await page.locator('.guide-preview-search-btn').click();
+  await page.locator('.guide-preview-place-result').first().click();
+  await expect(previewEvents.nth(0)).toContainText('S1 测试路 8 号');
   await previewEvents.nth(1).locator('.guide-preview-action-toggle').click();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog', { name: '导入预览' })).toBeVisible();
