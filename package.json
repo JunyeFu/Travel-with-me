@@ -17,6 +17,7 @@
     "test:e2e:live-provider": "node scripts/run-live-provider-smoke.mjs",
     "test:live:deepseek": "node scripts/run-live-deepseek-smoke.mjs",
     "test:guide-import": "node scripts/evaluate-guide-import.mjs",
+    "test:guide-import:live": "node scripts/evaluate-live-guide-import.mjs",
     "release:evidence:check": "node scripts/check-release-evidence.mjs",
     "release:review": "node scripts/create-release-review.mjs",
     "release:review:serve": "node scripts/serve-release-review.mjs",
@@ -27,8 +28,7 @@
     "@hono/node-server": "^2.0.5",
     "@node-rs/jieba": "^2.0.0",
     "better-sqlite3": "^11.0.0",
-    "console-log-json": "^6.4.1",
-    "hono": "^4.12.26"
+    "hono": "^4.13.12"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -37,7 +37,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.0.7",
     "prettier": "^3.7.4",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.11"
   },
   "lint-staged": {
     "*.js": [

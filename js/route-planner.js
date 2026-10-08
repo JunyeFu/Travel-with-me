@@ -8,7 +8,6 @@ import {
   buildEstimatedResult,
   safeClearService
 } from './api/routing.js?v=20260621-p0-v1';
-import { createRouteGeometryDiagnostics } from './route-geometry.js';
 import { cacheRouteGeometry, getAppState, getTrip, hasActiveTrip } from './state.js';
 import {
   buildRouteSegments,
@@ -60,16 +59,10 @@ async function planRoutesForDay(day, segments, serial) {
     if (result.ok) {
       success += 1;
       drawRoutePaths(segment, result.paths, false);
-      const simplifiedPaths = simplifyRoutePaths(result.paths);
       cacheRouteGeometry(segment.dayId, segment.eventId, {
-        source: 'amap-web-service',
+        source: result.source,
         mode: segment.mode,
-        paths: simplifiedPaths,
-        diagnostics: createRouteGeometryDiagnostics({
-          source: 'amap-web-service',
-          mode: segment.mode,
-          paths: simplifiedPaths
-        }),
+        paths: result.paths,
         fetchedAt: Date.now()
       });
       updateRouteCardOk(segment, result.detail);
@@ -87,18 +80,6 @@ async function planRoutesForDay(day, segments, serial) {
   setStatus(
     `${dayDisplayLabel(day)} 已完成：${success} 段真实路线，${estimated} 段估算路线，${failed} 段失败。`
   );
-}
-
-function simplifyRoutePaths(paths) {
-  const validPaths = (Array.isArray(paths) ? paths : [])
-    .filter(path => Array.isArray(path) && path.length >= 2)
-    .map(path => path.filter(point => Array.isArray(point) && point.length >= 2));
-  if (!validPaths.length) return [];
-  // AMap may return both a full route and its component steps. The full route is the longest path.
-  const primary = validPaths.reduce((longest, path) =>
-    path.length > longest.length ? path : longest
-  );
-  return [primary];
 }
 
 export function dayDisplayLabel(day) {
@@ -163,7 +144,7 @@ async function searchModeSegment(segment, mode, serial) {
   const state = getAppState();
   const targetSegment = asRouteModeSegment(segment, mode);
   const service = hasSdkRouteService(state.AMap, mode)
-    ? createRouteService(state.AMap, state.map, mode)
+    ? createRouteService(state.AMap, state.map, mode, targetSegment)
     : null;
 
   if (service) state.routeServices.push(service);

@@ -1,5 +1,5 @@
 // js/share-image.js
-// 生成分享长图（PNG）。版式按 mockup v4：420 逻辑宽，按 SCALE 上采样到高分辨率。
+// 生成分享长图（PNG）。版式按 mockup v4：388 逻辑宽，按 SCALE 上采样到高分辨率。
 //
 // 整体思路：
 //   1) 测量阶段：根据每个 event 的标题/地点文本换行，算出每段高度，得到画布总高
@@ -18,12 +18,12 @@ const SCALE = 2.5;
 const L = px => px * SCALE;
 const IMAGE_LOAD_TIMEOUT_MS = 4_000;
 
-const W = L(420);
+const W = L(388);
 
 // 卡片外侧（页边距，给阴影留空间）
-const PAGE_PAD_X = L(24);
-const PAGE_PAD_TOP = L(36);
-const PAGE_PAD_BOTTOM = L(36);
+const PAGE_PAD_X = L(8);
+const PAGE_PAD_TOP = L(8);
+const PAGE_PAD_BOTTOM = L(8);
 
 // 卡片内侧
 const CARD_RADIUS = L(24);
@@ -364,7 +364,7 @@ function drawStats(ctx, locCount, dayCount, stopCount, y) {
   ctx.lineTo(CONTENT_X + colW * 2, y + h);
   ctx.stroke();
 
-  drawStatCell(ctx, CONTENT_X + colW * 0, y, colW, h, locCount, '个', '地点');
+  drawStatCell(ctx, CONTENT_X + colW * 0, y, colW, h, locCount, '个', '已定位');
   drawStatCell(ctx, CONTENT_X + colW * 1, y, colW, h, dayCount, '天', '行程');
   drawStatCell(ctx, CONTENT_X + colW * 2, y, colW, h, stopCount, '处', '停留');
 
@@ -423,19 +423,25 @@ async function drawMap(ctx, locations, viewport, y) {
   ctx.clip();
 
   drawMapFallbackGrid(ctx, x, y);
-  await drawMapTiles(ctx, viewport, x, y);
+  if (locations.length) {
+    await drawMapTiles(ctx, viewport, x, y);
 
-  // 暖色滤镜（叠半透明 paperWarm）+ 轻微降饱和效果（叠灰白）
-  ctx.fillStyle = 'rgba(242, 237, 228, 0.32)';
-  ctx.fillRect(x, y, CONTENT_W, MAP_H);
-  ctx.fillStyle = 'rgba(180, 165, 140, 0.10)'; // 略偏暖灰，进一步降饱和
-  ctx.fillRect(x, y, CONTENT_W, MAP_H);
+    // 暖色滤镜（叠半透明 paperWarm）+ 轻微降饱和效果（叠灰白）
+    ctx.fillStyle = 'rgba(242, 237, 228, 0.32)';
+    ctx.fillRect(x, y, CONTENT_W, MAP_H);
+    ctx.fillStyle = 'rgba(180, 165, 140, 0.10)';
+    ctx.fillRect(x, y, CONTENT_W, MAP_H);
 
-  // 地点标记：只表达位置，不显示序号；行程序号留给下方时间轴承担。
-  locations.forEach(loc => {
-    const point = projectToMap(loc.lnglat, viewport, x, y);
-    drawMapMarker(ctx, point.x, point.y);
-  });
+    locations.forEach(loc => {
+      const point = projectToMap(loc.lnglat, viewport, x, y);
+      drawMapMarker(ctx, point.x, point.y);
+    });
+  } else {
+    ctx.fillStyle = COLORS.ink3;
+    ctx.font = `${L(14)}px ${FONT_SC}`;
+    ctx.textAlign = 'center';
+    ctx.fillText('地点尚未定位', x + CONTENT_W / 2, y + MAP_H / 2);
+  }
   ctx.restore();
 
   // 描边
@@ -494,7 +500,7 @@ function drawMapStrip(ctx, count, y) {
   ctx.fillStyle = COLORS.ink3;
   ctx.font = `500 ${L(10)}px ${FONT_MONO}`;
   ctx.textAlign = 'center';
-  ctx.fillText(`· 共 ${count} 个地点 ·`, CONTENT_X + CONTENT_W / 2, y + L(12));
+  ctx.fillText(`· ${count} 个已定位地点 ·`, CONTENT_X + CONTENT_W / 2, y + L(12));
   ctx.textAlign = 'left';
   return y + L(20) + L(12);
 }

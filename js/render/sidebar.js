@@ -6,11 +6,11 @@
 //   - 回调：用户点了 tab / event / route，会调 main.js 传进来的 handler
 // 这样 sidebar 不直接依赖 main.js，main.js 决定点击后做什么
 
-import { AppConfig } from '../config.js';
 import { getTrip, getLocation, getAppState, getRouteCard, hasActiveTrip } from '../state.js';
 import { escapeHTML, formatDistance, formatDuration, getTransportLabel } from '../utils.js';
 import { getIconIdForEvent, renderIconSVG } from './icons.js';
-import { getTimeSlotLabel, normalizeTimeSlot } from '../time-slots.js';
+import { getTimeSlotLabel, getTimeSlotHour, normalizeTimeSlot } from '../time-slots.js';
+import { getRouteDaylightColor } from '../route-guidance.js';
 import { getRouteDisplayLabel, normalizeRouteToNext } from '../route-config.js';
 
 // ─── 静态部分（标题副标题） ─────────────────────────────
@@ -172,7 +172,6 @@ export function renderItinerary(handlers) {
 
     const eventsContainer = dayGroup.querySelector('.event-container');
     bindContainerDropEvents(eventsContainer, day, handlers);
-    let routeOrder = 0;
 
     if (!day.events.length) {
       eventsContainer.classList.add('event-container-empty');
@@ -194,9 +193,8 @@ export function renderItinerary(handlers) {
 
       const nextEvent = day.events[eventIndex + 1];
       if (shouldCreateRouteCard(event, nextEvent)) {
-        const segment = buildRouteSegment(day, event, nextEvent, eventIndex, routeOrder);
+        const segment = buildRouteSegment(day, event, nextEvent, eventIndex);
         eventsContainer.appendChild(createRouteCard(segment, handlers));
-        routeOrder += 1;
       }
     });
 
@@ -659,17 +657,15 @@ export function shouldCreateRouteCard(event, nextEvent) {
 
 export function buildRouteSegments(day) {
   const segments = [];
-  let routeOrder = 0;
   day.events.forEach((event, eventIndex) => {
     const next = day.events[eventIndex + 1];
     if (!shouldCreateRouteCard(event, next)) return;
-    segments.push(buildRouteSegment(day, event, next, eventIndex, routeOrder));
-    routeOrder += 1;
+    segments.push(buildRouteSegment(day, event, next, eventIndex));
   });
   return segments;
 }
 
-function buildRouteSegment(day, event, nextEvent, eventIndex, routeOrder) {
+function buildRouteSegment(day, event, nextEvent, eventIndex) {
   const fromLoc = getLocation(event.locationId);
   const toLoc = getLocation(nextEvent.locationId);
   const routeToNext = normalizeRouteToNext(event.routeToNext);
@@ -684,8 +680,10 @@ function buildRouteSegment(day, event, nextEvent, eventIndex, routeOrder) {
     toName: toLoc.name,
     fromLngLat: fromLoc.lnglat,
     toLngLat: toLoc.lnglat,
+    fromCity: fromLoc.city || getTrip().city || '',
+    toCity: toLoc.city || getTrip().city || '',
     mode,
     routeToNext,
-    color: AppConfig.routeColors[routeOrder % AppConfig.routeColors.length]
+    color: getRouteDaylightColor(getTimeSlotHour(event.timeSlot))
   };
 }

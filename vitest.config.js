@@ -5,6 +5,7 @@ export default defineConfig({
     environment: 'node',
     include: [
       'js/__tests__/amap-web-service.test.js',
+      'js/__tests__/amap-arrow-shader.test.js',
       'js/__tests__/geocode.test.js',
       'js/__tests__/guide-import-cancellation.test.js',
       'js/__tests__/guide-import-cleanup.test.js',

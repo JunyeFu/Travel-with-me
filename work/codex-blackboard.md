@@ -2,7 +2,7 @@
 
 ## Current Task Goal
 
-Close S6 for the active 2D product with a candidate-bound seven-layer evidence contract, read-only review binder, blocker-first closure desk, and truthful HOLD decision.
+Complete R1–R6 route-trust repairs after official AMap / W3C / Node research. Final evidence is in `docs/engineering/route-trust-repair-2026-10-02.md`: 197 unit tests, 27 browser passes / 15 platform skips, real Hangzhou driving/transit and semantic DeepSeek fixture passed. Preserve existing work, credentials, sealed 3D and the unstarted Kotlin migration.
 
 ## Constraints
 
@@ -11,12 +11,12 @@ Close S6 for the active 2D product with a candidate-bound seven-layer evidence c
 - Keep archived 3D source available for history, but never reconnect it to the 2D entry point, default tests, dependencies, UI, or BFF routes.
 - Verify every product change with automated evidence.
 - Keep child packages blocked until their parent visual direction is explicitly confirmed.
-- Do not change product code during the visual confirmation stage.
+- Visual confirmation decisions below remain constraints; the user has authorized this repair implementation.
 - Add defensive behavior only for demonstrated requirements, failures, invariants, security boundaries, or material irreversible risks.
 
 ## Known Evidence
 
-- Active branch: `codex/2d-isolation-hardening`, created from local `main` at `6b43c1c`.
+- Active branch: `feature/kotlin-migration-samples`. Older counts and stage PASS entries below are historical; use the 2026-10-02 conformance review for current verification.
 - `scripts/check-2d-runtime-boundary.mjs` recursively scans the active `js/main.js` import graph and checks HTML, CSS, package, server, Docker, E2E, and quality-gate surfaces.
 - The production server serves 38 explicitly approved 2D browser modules; 73 inactive JavaScript files are sealed behind the HTTP allowlist. The active server package retains the 2D SQLite/BM25 guide-import RAG modules.
 - The production Docker stage is assembled from a 46-file allowlist instead of copying the repository tree.

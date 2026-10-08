@@ -5,7 +5,6 @@
 import { searchPlaces, searchNearBy } from './api/geocode.js';
 import { loadAMap } from './api/amap-loader.js';
 import { getAppState, setAMap } from './state.js';
-import { sleep } from './utils.js';
 import { setStatus } from './render/sidebar.js';
 import { cleanGuideExtractedEvents } from './guide-import-cleanup.js';
 import { createLogger } from './logger.js';
@@ -32,15 +31,12 @@ export async function buildGuideDraft(extracted, source, onProgress, signal) {
     );
   }
   const total = eventsToMatch.length;
-  // matching step 开始前先 yield 一帧让 UI 切换到"匹配地点"，避免 LLM 阶段一过就立刻冲到下一步
   onProgress?.('matching', total ? `准备匹配 ${total} 个地点...` : '正在整理...');
-  await sleep(220);
   signal?.throwIfAborted?.();
 
   for (let index = 0; index < total; index += 1) {
     signal?.throwIfAborted?.();
     const item = eventsToMatch[index];
-    // detail 文本带上具体地点名——给用户视觉强信号，避免 step 切换被 1 秒一闪而过
     onProgress?.('matching', `正在匹配 ${item.place_name || '地点'} (${index + 1}/${total})`);
     setStatus(`正在匹配高德地点：${index + 1}/${total}（${item.place_name || ''}）`);
 
@@ -69,11 +65,9 @@ export async function buildGuideDraft(extracted, source, onProgress, signal) {
       matched: Boolean(poi),
       deleted: false
     });
-    await sleep(80);
   }
 
   onProgress?.('previewing', '正在整理导入预览...');
-  await sleep(180); // 让 "整理预览" 状态可见
   signal?.throwIfAborted?.();
   return {
     title: extracted.title_suggestion || `${city || 'AI'}旅行路线`,
@@ -280,7 +274,7 @@ export async function matchGuidePlace({ placeName, city, note, sourceQuote, sign
 
   // Layer 1: place_name + city
   const placesL1 = await searchGuidePlaces(placeName, city, 10, signal);
-  const bestL1 = pickBestMatch(placesL1, placeName, 0.55);
+  const bestL1 = pickBestMatch(placesL1, placeName, 0.7);
   // 日志默认开，方便用户/开发自助 debug；上线前可统一关
   log.debug(`L1 "${placeName}"`, {
     city,
@@ -299,7 +293,7 @@ export async function matchGuidePlace({ placeName, city, note, sourceQuote, sign
     const expandedKeyword = `${placeName} ${kw}`.trim();
     signal?.throwIfAborted?.();
     const placesL2 = await searchGuidePlaces(expandedKeyword, city, 8, signal);
-    const bestL2 = pickBestMatch(placesL2, placeName, 0.4);
+    const bestL2 = pickBestMatch(placesL2, placeName, 0.7);
     log.debug(`L2 "${expandedKeyword}"`, {
       count: placesL2.length,
       candidates: placesL2.slice(0, 3).map(p => ({
@@ -356,14 +350,17 @@ function pickBestMatch(places, placeName, threshold) {
 // 例：("便宜坊烤鸭(王府井店)", "便宜坊") → 包含 → min/max = 3/11 ≈ 0.27 — 但我们更看重 LLM
 //     名是否被高德名包含。所以包含关系给一个保底加分。
 function similarityScore(amapName, llmName) {
-  const a = String(amapName || '')
+  const fullName = String(amapName || '')
     .toLowerCase()
     .replace(/\s+/g, '');
   const b = String(llmName || '')
     .toLowerCase()
     .replace(/\s+/g, '');
-  if (!a || !b) return 0;
-  if (a === b) return 1;
+  if (!fullName || !b) return 0;
+  if (fullName === b) return 1;
+  // A landmark in a hotel's branch/address qualifier does not identify the hotel as that landmark.
+  const a = fullName.replace(/\([^)]*\)|（[^）]*）/g, '');
+  if (!a) return 0;
   // 包含关系：LLM 名是高德名的子串（如 "便宜坊" ⊂ "便宜坊烤鸭"）→ 高置信
   if (a.includes(b) || b.includes(a)) {
     const minLen = Math.min(a.length, b.length);
@@ -402,8 +399,8 @@ async function enrichGeocodedPOI(geocoded, placeName) {
   if (!places.length) return null;
 
   // 用 similarity 筛掉"附近的不同店铺"——确保命中是同一个地点
-  // 阈值 0.5 略宽（已经被空间约束过滤过一次，主要拦明显误匹配）
-  const best = pickBestMatch(places, placeName, 0.5);
+  // Nearby enrichment must obey the same identity threshold as direct search.
+  const best = pickBestMatch(places, placeName, 0.7);
   if (!best) return null;
 
   // 优先用 PlaceSearch 的完整数据（含 rating/cost/photo）

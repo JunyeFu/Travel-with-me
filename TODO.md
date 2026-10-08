@@ -1,12 +1,16 @@
 # Travel With Me Roadmap
 
-Last updated: 2026-08-30
+Last updated: 2026-10-02
 
 The active product is 2D-only. Historical 3D work is frozen under `archive/3d/` and is not part of this backlog.
 
 ## Current Stage
 
 2D stability and data-integrity closure before review and release preparation.
+
+The document-to-implementation defect table and current repair evidence are maintained in
+[2026-10-02 conformance review](docs/engineering/2d-conformance-review-2026-10-02.md).
+Historical release manifests do not certify the current working tree.
 
 ## Closure Gates
 
@@ -20,5 +24,7 @@ The active product is 2D-only. Historical 3D work is frozen under `archive/3d/` 
 - Cloud sync and account ownership.
 - Provider quotas, monitoring, and operational alerts.
 - Real-user desktop acceptance and mobile compatibility review.
+- Image upload / OCR (current AI import accepts text only).
+- Kotlin M1–M4; M0 samples exist, see `docs/product/kotlin-native-migration-plan.md`.
 
 Any 3D revival requires a separate entry point, dependency surface, service boundary, test pipeline, and explicit product decision.

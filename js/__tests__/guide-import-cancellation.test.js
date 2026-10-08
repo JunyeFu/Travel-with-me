@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { extractGuideText } from '../api/guide-import.js';
-import { buildGuideDraft } from '../guide-import-flow.js';
+import { buildGuideDraft, matchGuidePlace } from '../guide-import-flow.js';
+import * as geocode from '../api/geocode.js';
 import { setAMap } from '../state.js';
 
 afterEach(() => {
@@ -10,6 +11,42 @@ afterEach(() => {
 });
 
 describe('guide import cancellation', () => {
+  it('does not bind a landmark to a hotel carrying the landmark in its branch name', async () => {
+    vi.spyOn(geocode, 'searchPlaces').mockResolvedValue([
+      { name: '布丁酒店(杭州西湖断桥店)', lnglat: [120.1, 30.2] }
+    ]);
+    setAMap({
+      Geocoder: class {
+        getLocation(name, callback) {
+          callback('no_data', null);
+        }
+      }
+    });
+    expect(await matchGuidePlace({ placeName: '西湖断桥', city: '杭州' })).toBeNull();
+  });
+  it('does not add artificial waits while retaining the place-request timeout', async () => {
+    vi.stubGlobal('window', globalThis);
+    vi.stubGlobal('document', { getElementById: () => null });
+    setAMap(null);
+    const timer = vi.spyOn(globalThis, 'setTimeout');
+    const progress = vi.fn();
+
+    const draft = await buildGuideDraft(
+      { events: [{ place_name: '外滩' }, { place_name: '豫园' }], warnings: [] },
+      { text: '', cityHint: '上海' },
+      progress
+    );
+
+    expect(draft.events.map(event => event.placeName)).toEqual(['外滩', '豫园']);
+    expect(timer.mock.calls.map(([, delay]) => delay)).toEqual([8000, 8000]);
+    expect(progress.mock.calls.map(([stage]) => stage)).toEqual([
+      'matching',
+      'matching',
+      'matching',
+      'previewing'
+    ]);
+  });
+
   it('preserves notes when a guide place remains unmatched', async () => {
     vi.stubGlobal('window', globalThis);
     vi.stubGlobal('document', { getElementById: () => null });

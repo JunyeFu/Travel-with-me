@@ -217,14 +217,14 @@ function bindMobileViewSwitch() {
   if (mobileViewSwitchBound) return;
   mobileViewSwitchBound = true;
   document.body.dataset.mobileView ||= 'list';
-  document.querySelectorAll('[data-mobile-view]').forEach(button => {
+  document.querySelectorAll('button[data-mobile-view]').forEach(button => {
     button.addEventListener('click', () => setMobileView(button.dataset.mobileView));
     button.addEventListener('keydown', event => {
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
       const nextView = ['ArrowRight', 'End'].includes(event.key) ? 'map' : 'list';
       setMobileView(nextView);
-      document.querySelector(`[data-mobile-view="${nextView}"]`)?.focus();
+      document.querySelector(`button[data-mobile-view="${nextView}"]`)?.focus();
     });
   });
   syncMobileViewButtons();
@@ -247,7 +247,7 @@ function setMobileView(view) {
 
 function syncMobileViewButtons() {
   const activeView = document.body.dataset.mobileView || 'list';
-  document.querySelectorAll('[data-mobile-view]').forEach(button => {
+  document.querySelectorAll('button[data-mobile-view]').forEach(button => {
     const active = button.dataset.mobileView === activeView;
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));

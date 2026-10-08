@@ -12,6 +12,7 @@ import { escapeHTML, unique } from '../utils.js';
 
 const log = createLogger('map');
 let markerSelectHandler = null;
+const arrowShaderContexts = new WeakSet();
 
 export function setMarkerSelectHandler(handler) {
   markerSelectHandler = handler;
@@ -43,6 +44,25 @@ export function initMap(AMap) {
   setInfoWindow(infoWindow);
 
   return { map, infoWindow };
+}
+
+function fixAMapArrowShader(map) {
+  // 高德 2.0 原生箭头 GLSL 的 clamp 参数颠倒，在 SwiftShader 上采样为空。
+  // 只修正此地图 WebGL 上下文的已知错误表达式，不改 SDK 文件或其他着色器。
+  const gl = map.getContext().gl;
+  if (arrowShaderContexts.has(gl)) return;
+  const shaderSource = gl.shaderSource;
+  gl.shaderSource = function (shader, source) {
+    return shaderSource.call(
+      this,
+      shader,
+      source.replaceAll(
+        'clamp(0.0,1.0,text_offset_x/icon_size.x)',
+        'clamp(text_offset_x/icon_size.x,0.0,1.0)'
+      )
+    );
+  };
+  arrowShaderContexts.add(gl);
 }
 
 // ─── Marker ────────────────────────────────────────────
@@ -338,27 +358,29 @@ const PULSE_DURATION_MS = 1400;
 
 export function drawRoutePaths(segment, paths, dashed = false) {
   const state = getAppState();
+  if (!state.AMap.__fallback) fixAMapArrowShader(state.map);
   const polylines = [];
   paths.forEach(path => {
     if (path.length < 2) return;
-    polylines.push(addPolyline(path, dashed));
+    polylines.push(addPolyline(path, dashed, segment.color));
   });
   state.routeOverlays.set(segment.id, {
     polylines,
     halo: [],
-    color: ROUTE_GUIDANCE.line,
+    color: segment.color,
     dashed
   });
+  if (polylines.length) document.getElementById('route-daylight-legend').hidden = false;
 }
 
-function addPolyline(path, dashed) {
+function addPolyline(path, dashed, color) {
   const state = getAppState();
   const polyline = new state.AMap.Polyline({
     path,
     isOutline: true,
     outlineColor: ROUTE_GUIDANCE.outline,
     borderWeight: 2,
-    strokeColor: ROUTE_GUIDANCE.line,
+    strokeColor: color,
     strokeOpacity: ROUTE_DEFAULT.strokeOpacity,
     strokeWeight: ROUTE_DEFAULT.strokeWeight,
     strokeStyle: dashed ? 'dashed' : 'solid',
@@ -372,6 +394,7 @@ function addPolyline(path, dashed) {
 }
 
 export function clearRouteOverlays() {
+  document.getElementById('route-daylight-legend').hidden = true;
   const state = getAppState();
   state.routeOverlays.forEach(entry => {
     entry.polylines.forEach(p => safeRemoveOverlay(state.map, p));

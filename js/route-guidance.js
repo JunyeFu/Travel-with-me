@@ -16,3 +16,13 @@ export const ROUTE_GUIDANCE = Object.freeze({
 export function getRouteGuidanceColor({ active = false } = {}) {
   return active ? ROUTE_GUIDANCE.activeLine : ROUTE_GUIDANCE.line;
 }
+
+// 五档固定色号，按示意日照强度分档：夜间浅蓝 → 正午中性黄。
+const DAYLIGHT_COLORS = ['#86B8DB', '#9CBDC9', '#B2C6B8', '#C7CCA6', '#DDD394'];
+// 00–06 / 18–23 为夜间；07–12 逐档增强，13–17 逐档回落。
+const HOUR_COLOR_INDEX = [0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 3, 4, 4, 4, 3, 3, 2, 1, 0, 0, 0, 0, 0, 0];
+
+export function getRouteDaylightColor(hour) {
+  if (hour === null) return '#6E6A63';
+  return DAYLIGHT_COLORS[HOUR_COLOR_INDEX[Math.floor(hour) % 24]];
+}

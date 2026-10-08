@@ -8,7 +8,6 @@
 //
 // 上层（render/sidebar）只关心这个统一形态，不需要知道高德返回什么
 
-import { AppConfig } from '../config.js';
 import { toNumber, calculateDistance, cleanText, getTransportIcon, sleep } from '../utils.js';
 import { getRouteDisplayLabel } from '../route-config.js';
 import { createLogger } from '../logger.js';
@@ -18,7 +17,7 @@ const log = createLogger('routing');
 
 // ─── 创建路线服务 ──────────────────────────────────────
 
-export function createRouteService(AMap, map, mode) {
+export function createRouteService(AMap, map, mode, segment = {}) {
   const common = {
     map: null, // 不让高德自己画线，我们自己控制
     hideMarkers: true,
@@ -28,9 +27,11 @@ export function createRouteService(AMap, map, mode) {
   };
 
   if (mode === 'transit') {
+    if (!segment.fromCity || !segment.toCity) return null;
     return new AMap.Transfer({
-      map,
-      city: AppConfig.cityName,
+      ...common,
+      city: segment.fromCity,
+      cityd: segment.toCity,
       policy: (AMap.TransferPolicy && AMap.TransferPolicy.LEAST_TIME) || 0,
       extensions: 'all',
       autoFitView: false
@@ -51,8 +52,12 @@ export function createRouteService(AMap, map, mode) {
 
 // segment: { fromLngLat, toLngLat, mode }
 export async function searchRoute(AMap, service, segment) {
+  if (segment.mode === 'transit' && (!segment.fromCity || !segment.toCity)) {
+    return buildEstimatedResult(segment);
+  }
   const bffResult = await searchRouteWithBff(segment);
   if (bffResult.ok) return bffResult;
+  if (!service) return buildEstimatedResult(segment);
 
   const maxAttempts = 3;
   let lastResult = null;
@@ -77,9 +82,13 @@ function searchRouteOnce(AMap, service, segment) {
   return new Promise(resolve => {
     const callback = (status, result) => {
       if (isRouteSearchSuccess(status, result, segment.mode)) {
-        const paths = segment.mode === 'transit' ? [] : extractRoutePaths(result);
+        const paths =
+          segment.mode === 'transit'
+            ? extractSdkTransitPaths(result.plans[0])
+            : extractRoutePaths(result);
         resolve({
-          ok: true,
+          ok: paths.length > 0,
+          source: 'amap-js-sdk',
           detail: extractRouteDetail(segment, result),
           paths
         });
@@ -112,8 +121,8 @@ async function searchRouteWithBff(segment) {
   if (segment.mode === 'riding') path = '/v4/direction/bicycling';
   if (segment.mode === 'transit') {
     path = '/v3/direction/transit/integrated';
-    params.city = AppConfig.cityCode;
-    params.cityd = AppConfig.cityCode;
+    params.city = segment.fromCity;
+    params.cityd = segment.toCity;
     params.strategy = 0;
   } else if (segment.mode === 'driving') {
     params.extensions = 'all';
@@ -135,9 +144,11 @@ function parseBffRoute(segment, payload) {
     const transit = payload?.route?.transits?.[0];
     if (!transit) return null;
     const steps = transit.segments || [];
-    const paths = mergeStepPolylines(steps, { deep: true });
+    const paths = extractBffTransitPaths(steps);
+    if (!paths.length) return null;
     return {
       ok: true,
+      source: 'amap-web-service',
       detail: {
         mode: segment.mode,
         label: getRouteDisplayLabel(segment.routeToNext || segment),
@@ -148,7 +159,7 @@ function parseBffRoute(segment, payload) {
         transitBoardings: countTransitBoardings(steps),
         transitTransfers: Math.max(0, countTransitBoardings(steps) - 1)
       },
-      paths: paths.length ? paths : [[segment.fromLngLat, segment.toLngLat]]
+      paths
     };
   }
   const path = payload?.route?.paths?.[0];
@@ -158,8 +169,10 @@ function parseBffRoute(segment, payload) {
 
 function createBffRouteResult(segment, path, steps) {
   const paths = mergeStepPolylines(steps);
+  if (!paths.length) return null;
   return {
     ok: true,
+    source: 'amap-web-service',
     detail: {
       mode: segment.mode,
       label: getRouteDisplayLabel(segment.routeToNext || segment),
@@ -168,34 +181,45 @@ function createBffRouteResult(segment, path, steps) {
       duration: toNumber(path.duration),
       steps: []
     },
-    paths: paths.length ? paths : [[segment.fromLngLat, segment.toLngLat]]
+    paths
   };
 }
 
-function mergeStepPolylines(steps, { deep = false } = {}) {
-  const points = deep
-    ? collectNestedPolylines(steps)
-    : (Array.isArray(steps) ? steps : [])
-        .map(step => normalizePath(step?.polyline))
-        .filter(path => path.length >= 2);
-  const merged = points.reduce((all, path) => appendPath(all, path), []);
-  return merged.length >= 2 ? [merged] : [];
+function mergeStepPolylines(steps) {
+  return joinContinuousPaths(steps.map(step => normalizePath(step.polyline || step.path)));
 }
 
-function collectNestedPolylines(value, paths = []) {
-  if (Array.isArray(value)) {
-    value.forEach(item => collectNestedPolylines(item, paths));
-    return paths;
+// Only join touching paths. Missing geometry invalidates the result; gaps are not roads.
+function joinContinuousPaths(paths) {
+  if (!paths.length || paths.some(path => path.length < 2)) return [];
+  const joined = [];
+  for (const path of paths) {
+    const previous = joined[joined.length - 1];
+    const end = previous?.[previous.length - 1];
+    if (end && end[0] === path[0][0] && end[1] === path[0][1]) appendPath(previous, path);
+    else joined.push([...path]);
   }
-  if (!value || typeof value !== 'object') return paths;
-  const path = normalizePath(value.polyline);
-  if (path.length >= 2) paths.push(path);
-  Object.entries(value).forEach(([key, child]) => {
-    if (key !== 'polyline' && (Array.isArray(child) || (child && typeof child === 'object'))) {
-      collectNestedPolylines(child, paths);
-    }
-  });
-  return paths;
+  return joined;
+}
+
+function extractBffTransitPaths(segments) {
+  const paths = [];
+  for (const segment of segments) {
+    for (const step of segment.walking?.steps || []) paths.push(normalizePath(step.polyline));
+    if (toNumber(segment.walking?.distance) > 0 && !segment.walking?.steps?.length) return [];
+    const line = getTransitLines(segment)[0];
+    if (line) paths.push(normalizePath(line.polyline));
+    if (hasRailway(segment)) paths.push(normalizePath(segment.railway.polyline));
+    if (segment.taxi && toNumber(segment.taxi.distance) > 0)
+      paths.push(normalizePath(segment.taxi.polyline));
+  }
+  return joinContinuousPaths(paths);
+}
+
+function extractSdkTransitPaths(plan) {
+  return joinContinuousPaths(
+    (plan.segments || []).map(segment => normalizePath(segment.transit?.path))
+  );
 }
 
 function appendPath(all, path) {
@@ -210,8 +234,8 @@ function extractTransitInstructions(segments) {
   return (Array.isArray(segments) ? segments : [])
     .flatMap(segment => {
       const instruction = String(segment?.walking?.instruction || '').trim();
-      const lines = segment?.bus?.buslines || segment?.bus?.lines || [];
-      const names = (Array.isArray(lines) ? lines : [lines])
+      const names = getTransitLines(segment)
+        .slice(0, 1)
         .map(line => cleanText(line?.name || ''))
         .filter(Boolean)
         .map(name => `乘坐 ${name}`);
@@ -222,8 +246,7 @@ function extractTransitInstructions(segments) {
 
 function countTransitBoardings(segments) {
   return (Array.isArray(segments) ? segments : []).reduce((count, segment) => {
-    const lines = segment?.bus?.buslines || segment?.bus?.lines || [];
-    return count + (Array.isArray(lines) ? lines.length : lines ? 1 : 0);
+    return count + (getTransitLines(segment).length ? 1 : 0) + (hasRailway(segment) ? 1 : 0);
   }, 0);
 }
 
@@ -301,7 +324,7 @@ function extractTransitDetail(segment, result) {
       );
     }
 
-    const lines = getTransitLines(seg);
+    const lines = getTransitLines(seg).slice(0, 1);
     transitBoardings += lines.length;
     lines.forEach(line => {
       const name = cleanText(line.name || line.lineName || '公共交通');
@@ -310,7 +333,7 @@ function extractTransitDetail(segment, result) {
       steps.push(`乘坐 ${name}${dep && arr ? `:${dep} → ${arr}` : ''}`);
     });
 
-    if (seg.railway) {
+    if (hasRailway(seg)) {
       transitBoardings += 1;
       const name = cleanText(seg.railway.name || seg.railway.trip || '铁路');
       const dep = getStopName(seg.railway.departure_stop || seg.railway.departureStop);
@@ -346,19 +369,12 @@ function extractSimpleRouteDetail(segment, result) {
 // ─── 内部：提取轨迹（用于画 Polyline） ────────────────────
 
 function extractRoutePaths(result) {
-  const paths = [];
   const route = result?.routes?.[0];
-  if (!route) return paths;
+  if (!route) return [];
 
-  pushPath(paths, route.path || route.polyline);
-  (route.steps || []).forEach(step => pushPath(paths, step.path || step.polyline));
-  (route.rides || []).forEach(ride => pushPath(paths, ride.path || ride.polyline));
-  return paths;
-}
-
-function pushPath(paths, rawPath) {
-  const path = normalizePath(rawPath);
-  if (path.length >= 2) paths.push(path);
+  const fullPath = normalizePath(route.path || route.polyline);
+  if (fullPath.length >= 2) return [fullPath];
+  return mergeStepPolylines(route.steps || route.rides || []);
 }
 
 function normalizePath(rawPath) {
@@ -405,6 +421,13 @@ function getTransitLines(seg) {
     else if (item) all.push(item);
     return all;
   }, []);
+}
+
+function hasRailway(segment) {
+  return (
+    toNumber(segment.railway?.distance) > 0 ||
+    (typeof segment.railway?.name === 'string' && segment.railway.name.length > 0)
+  );
 }
 
 function getStopName(stop) {
