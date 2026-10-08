@@ -5,11 +5,11 @@
 > `scripts/create-release-review.mjs` 生成的同候选审查包，合同见
 > `docs/operations/release-playbook.md`。
 
-> **辅助文件** | 权威开发文档: [DEVELOPMENT.md](../../DEVELOPMENT.md)
+> 历史参考 | 当前发布合同见 [Release playbook](release-playbook.md)。
 
 Last verified: 2026-07-17
 
-This document is the current status ledger for engineering, 2D map, 3D generation, data provenance, visual, and release quality gates. Source gates are consolidated from:
+This document is a historical status ledger for engineering, 2D map, 3D generation, data provenance, visual, and release quality gates. Historical source gates were consolidated from:
 
 - `docs/product/architecture-blueprint.md`
 - `docs/architecture/3d/deep-research-integration.md`

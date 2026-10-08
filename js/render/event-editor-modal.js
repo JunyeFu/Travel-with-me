@@ -279,7 +279,7 @@ function bindEvents(root, initialLocation, handlers) {
 
     const lng = Number(selectedLocation.lnglat?.[0]);
     const lat = Number(selectedLocation.lnglat?.[1]);
-    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+    const lnglat = Number.isFinite(lng) && Number.isFinite(lat) ? [lng, lat] : null;
 
     handlers.onConfirm({
       event: {
@@ -293,7 +293,7 @@ function bindEvents(root, initialLocation, handlers) {
         name: selectedLocation.name,
         query: selectedLocation.query || selectedLocation.name,
         addr: selectedLocation.addr,
-        lnglat: [lng, lat],
+        lnglat,
         photo: selectedLocation.photo || '',
         type: selectedLocation.type || ''
       },

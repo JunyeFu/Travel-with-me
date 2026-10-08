@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { Buffer } from 'node:buffer';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +20,8 @@ function setTestEnv(overrides = {}) {
     AMAP_JS_KEY: '',
     AMAP_WEB_SERVICE_KEY: '',
     RAG_ENABLED: 'true',
+    RAG_SAVE_IMPORTED_GUIDES: 'true',
+    DEMO_MODE: 'false',
     RAG_DB_PATH: ':memory:',
     ...overrides
   };
@@ -49,6 +52,113 @@ describe('server integration', () => {
     cleanupTmp();
     process.env = { ...originalEnv };
     vi.restoreAllMocks();
+  });
+
+  describe('public demo boundary', () => {
+    const demo = {
+      DEMO_MODE: 'true',
+      DEMO_USERNAME: 'demo',
+      DEMO_PASSWORD: 'test-only-password',
+      RAG_ENABLED: 'false'
+    };
+    const authorization = 'Basic ' + Buffer.from('demo:test-only-password').toString('base64');
+    it('refuses missing credentials and enabled RAG', async () => {
+      await expect(
+        getApp({ DEMO_MODE: 'true', DEMO_USERNAME: '', DEMO_PASSWORD: '' })
+      ).rejects.toThrow('DEMO_MODE requires');
+      await expect(getApp({ ...demo, RAG_ENABLED: 'true' })).rejects.toThrow('RAG_ENABLED=false');
+    });
+    it('protects static files, config and all supplier endpoints but not health checks', async () => {
+      const app = await getApp(demo);
+      for (const path of [
+        '/',
+        '/js/main.js',
+        '/_config',
+        '/_ai/status',
+        '/_AMapService/v3/place/text',
+        '/_AMapTile',
+        '/_rag/guides'
+      ]) {
+        expect((await app.request(path)).status, path).toBe(401);
+      }
+      expect((await app.request('/_ai/extract-guide', { method: 'POST' })).status).toBe(401);
+      expect((await app.request('/healthz')).status).toBe(200);
+      expect((await app.request('/readyz')).status).toBe(503);
+      expect((await app.request('/_config', { headers: { authorization } })).status).toBe(200);
+    });
+    it('requires AI readiness and never initializes the visitor database', async () => {
+      const app = await getApp({
+        ...demo,
+        AMAP_JS_KEY: 'js',
+        AMAP_JSCODE: 'security',
+        AMAP_WEB_SERVICE_KEY: 'web'
+      });
+      expect((await app.request('/readyz')).status).toBe(503);
+      const readyApp = await getApp({
+        ...demo,
+        AMAP_JS_KEY: 'js',
+        AMAP_JSCODE: 'security',
+        AMAP_WEB_SERVICE_KEY: 'web',
+        DEEPSEEK_API_KEY: 'test-key'
+      });
+      expect((await readyApp.request('/readyz')).status).toBe(200);
+      const disabled = await readyApp.request('/_rag/status', { headers: { authorization } });
+      expect((await disabled.json()).available).toBe(false);
+      expect(
+        (await readyApp.request('/_rag/guides/x', { method: 'DELETE', headers: { authorization } }))
+          .status
+      ).toBe(503);
+    });
+    it('limits globally even when forwarded IP changes', async () => {
+      const app = await getApp(demo);
+      for (let i = 0; i < 12; i++) {
+        const res = await app.request('/_ai/extract-guide', {
+          method: 'POST',
+          headers: { authorization, 'x-forwarded-for': `198.51.100.${i}` }
+        });
+        expect(res.status).toBe(503);
+      }
+      const res = await app.request('/_ai/extract-guide', {
+        method: 'POST',
+        headers: { authorization, 'x-forwarded-for': '203.0.113.1' }
+      });
+      expect(res.status).toBe(429);
+      expect(res.headers.get('retry-after')).toBeTruthy();
+    });
+    it('can extract without storing the evaluation input', async () => {
+      const app = await getApp({ DEEPSEEK_API_KEY: 'test-key', RAG_SAVE_IMPORTED_GUIDES: 'false' });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      city: '杭州',
+                      events: [{ place_name: '西湖', day: 1 }]
+                    })
+                  }
+                }
+              ]
+            }),
+            { status: 200 }
+          )
+        )
+      );
+      const res = await app.request('/_ai/extract-guide', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          text: '杭州旅行攻略，第一天上午前往西湖散步，下午在湖滨游玩，晚上返回酒店休息，第二天上午前往灵隐寺参观，下午到河坊街买纪念品。'
+        })
+      });
+      expect(res.status).toBe(200);
+      const status = await app.request('/_rag/status');
+      expect((await status.json()).documentCount).toBe(0);
+      vi.unstubAllGlobals();
+    });
   });
 
   describe('GET /healthz', () => {
@@ -396,6 +506,10 @@ describe('server integration', () => {
       const csp = res.headers.get('content-security-policy');
       expect(csp).toBeTruthy();
       expect(csp).toContain("default-src 'self'");
+      const scriptSources = csp.split(';').find(rule => rule.trim().startsWith('script-src '));
+      const connectSources = csp.split(';').find(rule => rule.trim().startsWith('connect-src '));
+      expect(scriptSources).toContain('https://mapplugin.amap.com');
+      expect(connectSources).toContain('https://webapi.amap.com');
     });
 
     it('sets permissions-policy header on routes after middleware', async () => {

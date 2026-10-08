@@ -21,3 +21,7 @@ export function getTimeSlotRank(value) {
   const rank = TIME_SLOT_ORDER.indexOf(normalizeTimeSlot(value));
   return rank >= 0 ? rank : TIME_SLOT_ORDER.length - 1;
 }
+
+export function getTimeSlotHour(value) {
+  return { morning: 9, noon: 12, afternoon: 15, evening: 20 }[normalizeTimeSlot(value)] ?? null;
+}

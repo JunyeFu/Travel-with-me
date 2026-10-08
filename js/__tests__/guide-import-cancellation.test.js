@@ -10,6 +10,29 @@ afterEach(() => {
 });
 
 describe('guide import cancellation', () => {
+  it('does not add artificial waits while retaining the place-request timeout', async () => {
+    vi.stubGlobal('window', globalThis);
+    vi.stubGlobal('document', { getElementById: () => null });
+    setAMap(null);
+    const timer = vi.spyOn(globalThis, 'setTimeout');
+    const progress = vi.fn();
+
+    const draft = await buildGuideDraft(
+      { events: [{ place_name: '外滩' }, { place_name: '豫园' }], warnings: [] },
+      { text: '', cityHint: '上海' },
+      progress
+    );
+
+    expect(draft.events.map(event => event.placeName)).toEqual(['外滩', '豫园']);
+    expect(timer.mock.calls.map(([, delay]) => delay)).toEqual([8000, 8000]);
+    expect(progress.mock.calls.map(([stage]) => stage)).toEqual([
+      'matching',
+      'matching',
+      'matching',
+      'previewing'
+    ]);
+  });
+
   it('preserves notes when a guide place remains unmatched', async () => {
     vi.stubGlobal('window', globalThis);
     vi.stubGlobal('document', { getElementById: () => null });

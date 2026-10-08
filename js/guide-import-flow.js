@@ -5,7 +5,6 @@
 import { searchPlaces, searchNearBy } from './api/geocode.js';
 import { loadAMap } from './api/amap-loader.js';
 import { getAppState, setAMap } from './state.js';
-import { sleep } from './utils.js';
 import { setStatus } from './render/sidebar.js';
 import { cleanGuideExtractedEvents } from './guide-import-cleanup.js';
 import { createLogger } from './logger.js';
@@ -32,15 +31,12 @@ export async function buildGuideDraft(extracted, source, onProgress, signal) {
     );
   }
   const total = eventsToMatch.length;
-  // matching step 开始前先 yield 一帧让 UI 切换到"匹配地点"，避免 LLM 阶段一过就立刻冲到下一步
   onProgress?.('matching', total ? `准备匹配 ${total} 个地点...` : '正在整理...');
-  await sleep(220);
   signal?.throwIfAborted?.();
 
   for (let index = 0; index < total; index += 1) {
     signal?.throwIfAborted?.();
     const item = eventsToMatch[index];
-    // detail 文本带上具体地点名——给用户视觉强信号，避免 step 切换被 1 秒一闪而过
     onProgress?.('matching', `正在匹配 ${item.place_name || '地点'} (${index + 1}/${total})`);
     setStatus(`正在匹配高德地点：${index + 1}/${total}（${item.place_name || ''}）`);
 
@@ -69,11 +65,9 @@ export async function buildGuideDraft(extracted, source, onProgress, signal) {
       matched: Boolean(poi),
       deleted: false
     });
-    await sleep(80);
   }
 
   onProgress?.('previewing', '正在整理导入预览...');
-  await sleep(180); // 让 "整理预览" 状态可见
   signal?.throwIfAborted?.();
   return {
     title: extracted.title_suggestion || `${city || 'AI'}旅行路线`,
