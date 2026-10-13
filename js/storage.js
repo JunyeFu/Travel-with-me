@@ -91,6 +91,14 @@ export async function loadWorkspace() {
   try {
     const parsed = JSON.parse(raw);
     const version = Number(parsed.version || 0);
+    if (version > SCHEMA_VERSION) {
+      lastWorkspaceLoadInfo = {
+        status: 'future-version',
+        shouldPersist: false,
+        message: '工作区版本较新，请使用对应版本打开。'
+      };
+      return null;
+    }
     const loadedWorkspace = parsed.workspace ?? null;
     const validation = validateWorkspaceShape(loadedWorkspace);
     if (!validation.ok) {
@@ -189,6 +197,13 @@ export function parseWorkspaceImport(input) {
     return { ok: false, error: 'INVALID_JSON', message: '导入文件不是合法 JSON。' };
   }
 
+  if (Number(parsed?.schemaVersion || parsed?.version || 0) > SCHEMA_VERSION) {
+    return {
+      ok: false,
+      error: 'FUTURE_SCHEMA',
+      message: '该文件来自较新的版本，不能覆盖当前工作区。'
+    };
+  }
   const workspace = extractImportedWorkspace(parsed);
   if (!workspace) {
     return {
