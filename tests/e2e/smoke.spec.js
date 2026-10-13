@@ -380,6 +380,19 @@ test('switching trips cancels the old assessment preview without a late callback
   expect(errors).toEqual([]);
 });
 
+test('appointment waiting is displayed as an ascending interval across stay scenarios', async ({
+  page
+}) => {
+  const form = await openComputedAssessment(page);
+  await form.locator('.plan-event summary').nth(1).click();
+  await form.locator('[name=fixed]').nth(1).fill('12:00');
+  await form.locator('[name=fixedConfirmed]').nth(1).check();
+  await form.locator('.plan-save').click();
+  await expect(form.locator('.plan-totals span').filter({ hasText: '等待' })).toContainText(
+    '40—70 分钟'
+  );
+});
+
 async function openComputedAssessment(page) {
   await installMockAMap(page);
   await seedWorkspace(page, SEEDED_WORKSPACE, true);

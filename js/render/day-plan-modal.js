@@ -409,10 +409,10 @@ export function refreshDayPlan(day) {
   const session = group?._planSession;
   if (!session) return;
   const result = evaluateDayPlan(day);
-  const minRange = values =>
-    values[0] === values[1]
-      ? String(Math.ceil(values[0] / 60))
-      : values.map(x => Math.ceil(x / 60)).join('—');
+  const minRange = values => {
+    const bounds = values.map(x => Math.ceil(x / 60)).sort((a, b) => a - b);
+    return bounds[0] === bounds[1] ? String(bounds[0]) : bounds.join('—');
+  };
   group.querySelector('.plan-results-slot').innerHTML =
     `<section class="plan-results day-plan-summary" data-plan-day="${escapeHTML(day.id)}" tabindex="-1" aria-live="polite">
     <h3>${escapeHTML(planSummary(day))}</h3>
