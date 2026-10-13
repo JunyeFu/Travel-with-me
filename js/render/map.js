@@ -364,6 +364,7 @@ const PULSE_DURATION_MS = 1400;
 
 export function drawRoutePaths(segment, paths, dashed = false) {
   const state = getAppState();
+  if (!state.map) return;
   if (!state.AMap.__fallback) fixAMapArrowShader(state.map);
   const polylines = [];
   paths.forEach(path => {

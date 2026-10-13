@@ -396,6 +396,8 @@ test('appointment waiting is displayed as an ascending interval across stay scen
 test('a day selected before the map loads remains selected after SDK readiness', async ({
   page
 }) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
   await installMockAMap(page);
   await page.addInitScript(() => {
     const load = window.AMapLoader.load;
@@ -407,6 +409,7 @@ test('a day selected before the map loads remains selected after SDK readiness',
   await seedWorkspace(page, SEEDED_WORKSPACE, true);
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'Day 1', exact: true }).click();
+  await page.waitForTimeout(350);
   await page.evaluate(() => window.releaseMap());
   await page.evaluate(async () => {
     const { getAppState } = await import('/js/state.js');
@@ -414,6 +417,7 @@ test('a day selected before the map loads remains selected after SDK readiness',
   });
   await page.waitForFunction(() => window.mapReady());
   await expect(page.getByRole('button', { name: 'Day 1', exact: true })).toHaveClass(/active/);
+  expect(errors).toEqual([]);
 });
 
 async function openComputedAssessment(page) {
