@@ -408,7 +408,11 @@ test('a day selected before the map loads remains selected after SDK readiness',
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'Day 1', exact: true }).click();
   await page.evaluate(() => window.releaseMap());
-  await expect(page.locator('#status-panel')).toContainText('全部地点已显示');
+  await page.evaluate(async () => {
+    const { getAppState } = await import('/js/state.js');
+    window.mapReady = () => Boolean(getAppState().map);
+  });
+  await page.waitForFunction(() => window.mapReady());
   await expect(page.getByRole('button', { name: 'Day 1', exact: true })).toHaveClass(/active/);
 });
 
