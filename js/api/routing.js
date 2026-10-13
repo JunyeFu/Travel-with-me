@@ -154,7 +154,7 @@ function parseBffRoute(segment, payload) {
         label: getRouteDisplayLabel(segment.routeToNext || segment),
         icon: getTransportIcon(segment.mode),
         distance: toNumber(transit.distance),
-        duration: toNumber(transit.duration),
+        duration: parseDuration(transit.duration),
         steps: extractTransitInstructions(steps),
         transitBoardings: countTransitBoardings(steps),
         transitTransfers: Math.max(0, countTransitBoardings(steps) - 1)
@@ -178,7 +178,7 @@ function createBffRouteResult(segment, path, steps) {
       label: getRouteDisplayLabel(segment.routeToNext || segment),
       icon: getTransportIcon(segment.mode),
       distance: toNumber(path.distance),
-      duration: toNumber(path.duration),
+      duration: parseDuration(path.duration),
       steps: []
     },
     paths
@@ -347,7 +347,7 @@ function extractTransitDetail(segment, result) {
     label: getRouteDisplayLabel(segment.routeToNext || segment),
     icon: getTransportIcon(segment.mode),
     distance: toNumber(plan.distance || result.distance),
-    duration: toNumber(plan.time || plan.duration || result.time || result.duration),
+    duration: parseDuration(plan.time ?? plan.duration ?? result.time ?? result.duration),
     steps: steps.length ? steps.slice(0, 8) : ['按高德推荐公共交通方案前往。'],
     transitBoardings,
     transitTransfers: Math.max(0, transitBoardings - 1)
@@ -361,7 +361,7 @@ function extractSimpleRouteDetail(segment, result) {
     label: getRouteDisplayLabel(segment.routeToNext || segment),
     icon: getTransportIcon(segment.mode),
     distance: toNumber(route.distance || result.distance),
-    duration: toNumber(route.time || route.duration || result.time || result.duration),
+    duration: parseDuration(route.time ?? route.duration ?? result.time ?? result.duration),
     steps: []
   };
 }
@@ -434,4 +434,10 @@ function getStopName(stop) {
   if (!stop) return '';
   if (typeof stop === 'string') return cleanText(stop);
   return cleanText(stop.name || stop.stationName || '');
+}
+
+function parseDuration(value) {
+  if (value == null || value === '') return null;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
 }

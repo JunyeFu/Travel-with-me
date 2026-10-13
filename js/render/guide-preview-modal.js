@@ -112,6 +112,7 @@ function renderEventCard(event) {
           <input type="text" class="guide-preview-event-title-input" value="${escapeHTML(getEventTitle(event))}" aria-label="编辑日程标题" />
         </label>
         <div class="guide-preview-event-addr">${escapeHTML(addr)}</div>
+          ${event.sourceFacts ? `<p class="plan-source">原文时间：${escapeHTML(event.sourceFacts.timeText || '未明确')} · 停留 ${event.sourceFacts.duration ? `${event.sourceFacts.duration.min}—${event.sourceFacts.duration.max} 分钟` : '待填写'} · 交通 ${escapeHTML(event.sourceFacts.transport?.preference === 'subway' ? '地铁' : event.sourceFacts.transport?.mode || '待确认')}</p>` : ''}
         <label class="guide-preview-edit-field guide-preview-note-field">
           <span>备注</span>
           <textarea class="guide-preview-event-note-input" aria-label="编辑日程备注" rows="2">${escapeHTML(event.note || '')}</textarea>

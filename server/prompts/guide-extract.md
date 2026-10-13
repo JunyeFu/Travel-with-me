@@ -3,6 +3,23 @@
 
 ## 一、识别攻略类型(guide_type)
 
+### 时间和交通扩展字段
+
+每个 event 除既有字段外输出以下字段。只提取原文事实，不预测停留时间，不改动原文顺序。
+
+同一天出现两套互相矛盾的地点先后顺序时，在既有 warnings 数组说明冲突及两种顺序，events 仅供用户核对，不称为唯一明确顺序。不同日期的路线、连续路段和明确的重复到访不视为冲突。
+
+- time_text：该地点原文时间描述，保留“下午”“随后”等相对表述；无则空字符串。
+- arrival_time：原文明示到达时刻，转成 HH:mm；模糊时段为 null。
+- duration_min / duration_max：原文明示停留分钟数，单值两者相同；未写均为 null。
+- fixed_time：仅明确预约、场次或固定出发时刻，HH:mm；普通“14点去”不能视为预约，无则 null。导入后仍由用户确认。
+- transport_mode：从该地点到下一地点的原文方式，walking/riding/driving/transit；未明确为 null，不能代用户选择。
+- transport_preference：原文指定地铁时为 subway，否则 null。
+- start_transport_mode / start_transport_preference：仅当天首站填写，从当天出发地到首站的原文方式与偏好；取值分别同 transport_mode / transport_preference，未明确均为 null。不得把到达首站前的交通写成首站到下一站的交通。例如“从住宿坐地铁到南宋御街，随后骑车去清河坊”，南宋御街的 start_transport_mode=transit、start_transport_preference=subway、transport_mode=riding，清河坊的 start_transport_mode=null。
+- activity_type：原文活动，例如参观、门口拍照、购物；无明确活动则空字符串。
+
+以上字段不得代替既有 place_name/day/time_slot/note/source_quote，不得为缺失信息补默认时刻或时长。
+
 先判断这篇文本属于哪种类型:
 
 - daily_itinerary:有明确"Day 1 / Day 2"或"第一天 / 第二天"的按日结构

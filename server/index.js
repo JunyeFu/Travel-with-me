@@ -26,6 +26,7 @@ import {
   projectPathFromRequestURL
 } from '../scripts/active-2d-runtime.mjs';
 import { initDB } from './rag/db.js';
+import { normalizeGuideTimeFacts } from './guide-time.js';
 import { saveGuide, listGuides, softDeleteGuide, getActiveGuideCount } from './rag/store.js';
 import { BM25Index } from './rag/bm25.js';
 import { retrieveGuides, formatRetrievedContext } from './rag/retrieve.js';
@@ -899,7 +900,8 @@ function normalizeExtractedGuide(input = {}) {
     title_suggestion: String(input.title_suggestion || '').trim(),
     events: Array.isArray(input.events)
       ? input.events
-          .map(event => ({
+          .map((event, index) => ({
+            time_facts: normalizeGuideTimeFacts(event || {}, index),
             place_name: String(event?.place_name || '').trim(),
             day: Number.isInteger(event?.day) && event.day > 0 ? event.day : null,
             time_slot: timeSlots.has(event?.time_slot) ? event.time_slot : null,

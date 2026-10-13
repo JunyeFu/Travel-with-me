@@ -55,17 +55,17 @@ describe('route daylight mapping', () => {
     expect(getRouteDaylightColor(null)).toBe('#6E6A63');
   });
 
-  it('keeps pre-sunrise mornings and post-sunset hours blue, with neutral yellow at noon', () => {
+  it('keeps pre-sunrise mornings and post-sunset hours dark stone blue, with lighter blue at noon', () => {
     for (const hour of [0, 4, 5, 6, 18, 20, 23, 24]) {
-      expect(getRouteDaylightColor(hour)).toBe('#86B8DB');
+      expect(getRouteDaylightColor(hour)).toBe('#31566B');
     }
-    expect(getRouteDaylightColor(12)).toBe('#DDD394');
-    expect(getRouteDaylightColor(9)).toBe('#C7CCA6');
+    expect(getRouteDaylightColor(12)).toBe('#6196A8');
+    expect(getRouteDaylightColor(9)).toBe('#53879B');
     expect(getRouteDaylightColor(15)).toBe(getRouteDaylightColor(9));
   });
 
   it('maps all 24 hours to exactly five fixed daylight colors', () => {
-    const palette = ['#86B8DB', '#9CBDC9', '#B2C6B8', '#C7CCA6', '#DDD394'];
+    const palette = ['#31566B', '#3B657B', '#47768C', '#53879B', '#6196A8'];
     const levels = [0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 3, 4, 4, 4, 3, 3, 2, 1, 0, 0, 0, 0, 0, 0];
     const colors = Array.from({ length: 24 }, (_, hour) => getRouteDaylightColor(hour));
     expect(colors).toEqual(levels.map(level => palette[level]));

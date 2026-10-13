@@ -145,7 +145,17 @@ describe('server integration', () => {
                   message: {
                     content: JSON.stringify({
                       city: '杭州',
-                      events: [{ place_name: '西湖', day: 1 }]
+                      events: [
+                        {
+                          place_name: '西湖',
+                          day: 1,
+                          arrival_time: '09:30',
+                          time_text: '上午随后',
+                          duration_min: 60,
+                          duration_max: 90,
+                          transport_mode: 'walking'
+                        }
+                      ]
                     })
                   }
                 }
@@ -163,6 +173,12 @@ describe('server integration', () => {
         })
       });
       expect(res.status).toBe(200);
+      expect((await res.json()).events[0].time_facts).toMatchObject({
+        arrival: 570,
+        duration: { min: 60, max: 90 },
+        transport: { mode: 'walking' },
+        timeText: '上午随后'
+      });
       const status = await app.request('/_rag/status');
       expect((await status.json()).documentCount).toBe(0);
       vi.unstubAllGlobals();

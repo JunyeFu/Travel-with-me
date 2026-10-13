@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { extractGuideText } from '../api/guide-import.js';
-import { buildGuideDraft, matchGuidePlace } from '../guide-import-flow.js';
+import {
+  buildGuideDraft,
+  matchGuidePlace,
+  normalizeGuideEventsFromSource
+} from '../guide-import-flow.js';
+import { cleanGuideExtractedEvents } from '../guide-import-cleanup.js';
 import * as geocode from '../api/geocode.js';
 import { setAMap } from '../state.js';
 
@@ -11,6 +16,50 @@ afterEach(() => {
 });
 
 describe('guide import cancellation', () => {
+  it('warns on conflicting same-day routes without silently merging or reordering the draft', () => {
+    const input = ['西湖', '灵隐寺', '河坊街'].map(place_name => ({ place_name, day: 1 }));
+    const warnings = [];
+    expect(
+      normalizeGuideEventsFromSource(
+        input,
+        'Day 1\n路线：西湖→灵隐寺→河坊街\n路线：西湖→河坊街→灵隐寺',
+        warnings
+      )
+    ).toEqual(input);
+    expect(warnings[0]).toContain('原文顺序冲突');
+    expect(warnings[0]).toContain('西湖→灵隐寺→河坊街');
+    expect(warnings[0]).toContain('西湖→河坊街→灵隐寺');
+  });
+  it('preserves double-digit days and distinguishes continuous routes from conflicting alternatives', () => {
+    const warnings = [];
+    const output = normalizeGuideEventsFromSource(
+      [],
+      'Day 10\n路线：西湖→灵隐寺\n路线：灵隐寺→河坊街\nDay 11\n路线：河坊街→灵隐寺→西湖',
+      warnings
+    );
+    expect(output.map(e => e.day)).toEqual([10, 10, 10, 11, 11, 11]);
+    expect(output.map(e => e.place_name)).toEqual([
+      '西湖',
+      '灵隐寺',
+      '河坊街',
+      '河坊街',
+      '灵隐寺',
+      '西湖'
+    ]);
+    expect(warnings).toEqual([]);
+  });
+  it('preserves return visits in explicit arrow routes and their independent time facts', () => {
+    const input = [
+      { place_name: '清河坊', day: 1, time_facts: { arrival: 540 } },
+      { place_name: '胡庆余堂', day: 1, time_facts: { arrival: 600 } },
+      { place_name: '清河坊', day: 1, time_facts: { arrival: 660 } }
+    ];
+    const events = cleanGuideExtractedEvents(
+      normalizeGuideEventsFromSource(input, 'Day 1\n路线：清河坊→胡庆余堂→清河坊', [])
+    );
+    expect(events).toHaveLength(3);
+    expect(events.map(e => e.time_facts.arrival)).toEqual([540, 600, 660]);
+  });
   it('does not bind a landmark to a hotel carrying the landmark in its branch name', async () => {
     vi.spyOn(geocode, 'searchPlaces').mockResolvedValue([
       { name: '布丁酒店(杭州西湖断桥店)', lnglat: [120.1, 30.2] }

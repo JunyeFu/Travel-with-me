@@ -11,6 +11,7 @@ import { AppConfig } from './config.js';
 import { getTransportIcon, getTransportLabel } from './utils.js';
 import { getIconPaths, inferIconId, normalizeIconId } from './render/icons.js';
 import { getTimeSlotLabel, normalizeTimeSlot } from './time-slots.js';
+import { evaluateDayPlan, formatPlanRange } from './day-plan.js';
 
 // ─── 度量常数 ─────────────────────────────────────────
 // 所有数字以 mockup 的 "logical px" 为基准，最后乘 SCALE 得到画布像素。
@@ -161,16 +162,25 @@ function measureLayout(ctx, trip, days, opts = {}) {
 
   let daysHeight = 0;
   const dayHeights = days.map((day, idx) => {
-    const headH = L(DAY_BADGE_FONT_SIZE * 1.18) + L(3.4) * 2 + L(8);
+    const headH = L(DAY_BADGE_FONT_SIZE * 1.18) + L(3.4) * 2 + L(8) + (day.plan ? L(26) : 0);
     const events = day.events || [];
-    const itemHeights = events.map(event => measureItemHeight(ctx, trip, event, { includeNotes }));
+    const stops = day.plan ? evaluateDayPlan(day).stops : [];
+    const itemHeights = events.map(event =>
+      measureItemHeight(ctx, trip, event, {
+        includeNotes,
+        planStop: stops.find(stop => stop.eventId === event.id)
+      })
+    );
 
     // 元素流：事件 + （可选）路线块，按发生顺序排
     const elements = [];
     events.forEach((event, i) => {
       elements.push({ kind: 'event', height: itemHeights[i], event });
-      if (i < events.length - 1 && includeRoutes && event.routeToNext) {
-        elements.push({ kind: 'route', height: ROUTE_BLOCK_H, event });
+      const routeMode = day.plan
+        ? day.plan.legs.find(leg => leg.from === event.id)?.mode
+        : event.routeToNext?.mode;
+      if (i < events.length - 1 && includeRoutes && routeMode) {
+        elements.push({ kind: 'route', height: ROUTE_BLOCK_H, event, mode: routeMode });
       }
     });
 
@@ -240,9 +250,19 @@ function measureItemHeight(ctx, trip, event, options = {}) {
   const titleH = titleLines.length * L(EVENT_TITLE_FONT_SIZE * EVENT_TITLE_LINE_HEIGHT);
   const locH = locLines.length * L(EVENT_LOCATION_FONT_SIZE * EVENT_LOCATION_LINE_HEIGHT);
   const noteH = noteLines.length * L(EVENT_NOTE_FONT_SIZE * EVENT_NOTE_LINE_HEIGHT);
+  const stop = options.planStop;
+  const timeLines = stop
+    ? wrapText(
+        ctx,
+        `到达 ${formatPlanRange(stop.arrival)} · 离开 ${formatPlanRange(stop.departure)}`,
+        innerW,
+        `400 ${L(EVENT_NOTE_FONT_SIZE)}px ${FONT_SC}`
+      )
+    : [];
+  const timeH = timeLines.length * L(EVENT_NOTE_FONT_SIZE * EVENT_NOTE_LINE_HEIGHT);
   const gap1 = L(2.5);
   const gap2 = noteLines.length ? L(3) : 0;
-  const contentH = titleH + gap1 + locH + gap2 + noteH;
+  const contentH = titleH + gap1 + locH + (timeH ? L(3) + timeH : 0) + gap2 + noteH;
 
   // icon-row 是 flex align-items: center，卡高 = max(content, icon=30) + 上下 padding
   return Math.max(contentH, L(EVENT_ICON_BOX_SIZE)) + padV * 2;
@@ -547,6 +567,7 @@ async function drawDays(ctx, trip, days, startY, layout, options = {}) {
     }
 
     const elements = layout.dayHeights[dayIdx].elements;
+    const stops = day.plan ? evaluateDayPlan(day).stops : [];
     const timelineX = CONTENT_X + L(8); // 虚线/节点中心
 
     // 第一遍：算每个 event 节点的 y 位置（路线块也占行但没有节点）
@@ -568,11 +589,12 @@ async function drawDays(ctx, trip, days, startY, layout, options = {}) {
       if (el.kind === 'event') {
         drawTimelineNode(ctx, timelineX, y + el.height / 2, globalIndex);
         drawEventCard(ctx, trip, el.event, CONTENT_X + L(26), y, el.height, iconCache, {
-          includeNotes
+          includeNotes,
+          planStop: stops.find(stop => stop.eventId === el.event.id)
         });
         globalIndex += 1;
       } else if (el.kind === 'route') {
-        drawRouteBlock(ctx, el.event.routeToNext?.mode, CONTENT_X + L(26), y, el.height);
+        drawRouteBlock(ctx, el.mode, CONTENT_X + L(26), y, el.height);
       }
       y += el.height;
       if (i < elements.length - 1) y += INTER_ELEM_GAP;
@@ -624,6 +646,23 @@ function drawDayHead(ctx, day, y, dayIndex = 0) {
 
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
+  if (day.plan) {
+    const evaluation = evaluateDayPlan(day);
+    const label = evaluation.completion
+      ? `${evaluation.status === 'within-window' ? '窗口内' : evaluation.status === 'overrun' ? '预计超时' : '可能超时'} · 预计 ${formatPlanRange(evaluation.completion)}`
+      : '未完整计算 · ' +
+        evaluation.missing.slice(0, 2).join('；') +
+        (evaluation.missing.length > 2 ? `等${evaluation.missing.length}项` : '');
+    ctx.font = `500 ${L(9)}px ${FONT_SC}`;
+    ctx.fillStyle = COLORS.ink3;
+    ctx.fillText(label, CONTENT_X, y + badgeH + L(14), CONTENT_W);
+    const caveats = [
+      evaluation.slack?.[0] === 0 ? '较长耗时情景无额外缓冲' : '',
+      evaluation.conflicts.length ? '存在固定时间冲突，请查看行程' : ''
+    ].filter(Boolean);
+    if (caveats.length) ctx.fillText(caveats.join('；'), CONTENT_X, y + badgeH + L(25), CONTENT_W);
+    return y + badgeH + L(34);
+  }
   return y + badgeH + L(8);
 }
 
@@ -746,9 +785,19 @@ function drawEventCard(ctx, trip, event, x, y, h, iconCache, options = {}) {
   const titleH = titleLines.length * titleLineH;
   const locH = locLines.length * locLineH;
   const noteH = noteLines.length * noteLineH;
+  const stop = options.planStop;
+  const timeLines = stop
+    ? wrapText(
+        ctx,
+        `到达 ${formatPlanRange(stop.arrival)} · 离开 ${formatPlanRange(stop.departure)}`,
+        textW,
+        `400 ${L(EVENT_NOTE_FONT_SIZE)}px ${FONT_SC}`
+      )
+    : [];
+  const timeH = timeLines.length * noteLineH;
   const gap1 = L(2.5);
   const gap2 = noteLines.length ? L(3) : 0;
-  const contentH = titleH + gap1 + locH + gap2 + noteH;
+  const contentH = titleH + gap1 + locH + (timeH ? L(3) + timeH : 0) + gap2 + noteH;
   let textY = y + (h - contentH) / 2 + L(0.25);
 
   // 标题
@@ -795,6 +844,14 @@ function drawEventCard(ctx, trip, event, x, y, h, iconCache, options = {}) {
   });
   ctx.textBaseline = 'top';
   textY += locH;
+
+  if (timeLines.length) {
+    textY += L(3);
+    ctx.fillStyle = COLORS.ink3;
+    ctx.font = `400 ${L(EVENT_NOTE_FONT_SIZE)}px ${FONT_SC}`;
+    timeLines.forEach((line, idx) => ctx.fillText(line, textX, textY + idx * noteLineH));
+    textY += timeH;
+  }
 
   // 备注（弱化色，最多 2 行）
   if (noteLines.length) {

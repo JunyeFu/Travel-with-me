@@ -20,6 +20,10 @@ describe('route truth contract', () => {
       vi.fn(async () => ({ ok: true, json: async () => payload }))
     );
   const line = '120.1,30.2;120.2,30.3';
+  it('retains unknown route duration rather than inventing zero', async () => {
+    respond({ status: '1', route: { paths: [{ distance: 1200, steps: [{ polyline: line }] }] } });
+    expect((await searchRoute(null, null, segment)).detail.duration).toBeNull();
+  });
 
   it('uses endpoint cities for BFF and SDK without attaching a second renderer', async () => {
     respond({

@@ -24,6 +24,7 @@ const runtimePaths = new Set([
   'package.json',
   'package-lock.json',
   'server/index.js',
+  'server/guide-time.js',
   'server/prompts/guide-extract.md',
   'server/rag/bm25.js',
   'server/rag/db.js',

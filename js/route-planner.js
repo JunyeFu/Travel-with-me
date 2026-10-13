@@ -8,7 +8,13 @@ import {
   buildEstimatedResult,
   safeClearService
 } from './api/routing.js?v=20260621-p0-v1';
-import { cacheRouteGeometry, getAppState, getTrip, hasActiveTrip } from './state.js';
+import {
+  cacheRouteGeometry,
+  cachePlanRoute,
+  getAppState,
+  getTrip,
+  hasActiveTrip
+} from './state.js';
 import {
   buildRouteSegments,
   resetRouteCards,
@@ -16,6 +22,7 @@ import {
   updateRouteCardOk,
   updateRouteCardEstimated,
   updateRouteCardError,
+  refreshPlanSummary,
   setStatus
 } from './render/sidebar.js';
 import { drawRoutePaths, clearRouteOverlays } from './render/map.js';
@@ -45,7 +52,7 @@ export function scheduleRoutePlanning(day) {
   }, 240);
 }
 
-async function planRoutesForDay(day, segments, serial) {
+async function planRoutesForDay(day, segments, serial, force = false) {
   const state = getAppState();
   let success = 0,
     estimated = 0,
@@ -53,6 +60,83 @@ async function planRoutesForDay(day, segments, serial) {
 
   for (const segment of segments) {
     if (serial !== state.routePlanningSerial) return;
+    if (segment.planLeg) {
+      // 前段新耗时会改变本站出发时刻；绘制前只刷新色号，保留原生路线样式。
+      segment.color = buildRouteSegments(day).find(item => item.id === segment.id).color;
+      const leg = segment.planLeg;
+      if (leg.transitPreference === 'subway') {
+        failed++;
+        updateRouteCardError(segment, '原文指定地铁：请确认是否接受公共交通方案');
+        continue;
+      }
+      if (!leg.mode || !hasValidSegmentCoords(segment)) {
+        failed++;
+        updateRouteCardError(segment, '请选择首尾地点及交通方式');
+        continue;
+      }
+      const cached = leg.estimate;
+      if (!force && cached?.status !== 'real') {
+        failed++;
+        updateRouteCardError(segment, '尚无有效耗时，请在时间评估中重新计算');
+        continue;
+      }
+      if (!force && cached?.status === 'real') {
+        success++;
+        drawRoutePaths(segment, cached.paths || [], false);
+        updateRouteCardOk(segment, {
+          duration: cached.seconds,
+          distance: cached.meters,
+          steps: cached.steps || []
+        });
+        continue;
+      }
+      cachePlanRoute(day.id, leg.from, leg.to, null, 'pending');
+      const same = segment.fromLngLat.every(
+        (value, i) => Number(value) === Number(segment.toLngLat[i])
+      );
+      const result = same
+        ? {
+            ok: true,
+            source: 'same-point',
+            paths: [],
+            detail: { duration: 0, distance: 0, steps: [] }
+          }
+        : await searchModeSegment(segment, leg.mode, serial);
+      if (serial !== state.routePlanningSerial) return;
+      const subwayUnconfirmed = leg.transitPreference === 'subway';
+      const valid = result.ok && Number.isFinite(result.detail?.duration) && !subwayUnconfirmed;
+      const estimate = {
+        status: valid ? 'real' : 'unavailable',
+        seconds: valid ? result.detail.duration : null,
+        meters: result.detail?.distance,
+        paths: result.paths || [],
+        steps: result.detail?.steps || [],
+        fetchedAt: Date.now(),
+        query: planRouteQuery(segment),
+        source: result.source || 'amap'
+      };
+      cachePlanRoute(
+        day.id,
+        leg.from,
+        leg.to,
+        valid ? estimate : null,
+        valid ? 'success' : 'failed'
+      );
+      if (valid) {
+        success++;
+        drawRoutePaths(segment, estimate.paths, false);
+        updateRouteCardOk(segment, { ...result.detail });
+      } else {
+        failed++;
+        updateRouteCardError(
+          segment,
+          subwayUnconfirmed
+            ? '原文指定地铁：请确认是否接受公共交通方案'
+            : '未取得真实路线耗时，请重新计算'
+        );
+      }
+      continue;
+    }
     const result = await searchSegment(segment, serial);
     if (serial !== state.routePlanningSerial) return;
 
@@ -77,9 +161,78 @@ async function planRoutesForDay(day, segments, serial) {
   }
 
   if (serial !== state.routePlanningSerial) return;
+  if (day.plan) {
+    refreshPlanSummary(day);
+    setStatus(`${success} 段有可用查询估计，${failed} 段尚未完整；请核对各段获取时间。`);
+    return;
+  }
   setStatus(
     `${dayDisplayLabel(day)} 已完成：${success} 段真实路线，${estimated} 段估算路线，${failed} 段失败。`
   );
+}
+
+export async function calculateDayPlanRoutes(dayId) {
+  const day = getTrip().days.find(item => item.id === dayId);
+  if (!day?.plan) return;
+  const state = getAppState();
+  if (state.routePlanningTimer) clearTimeout(state.routePlanningTimer);
+  const serial = ++state.routePlanningSerial;
+  await planRoutesForDay(day, buildRouteSegments(day), serial, true);
+}
+
+export async function previewDayPlanRoute(day, index) {
+  const state = getAppState(),
+    serial = ++state.routePlanningSerial;
+  if (state.routePlanningTimer) clearTimeout(state.routePlanningTimer);
+  const segment = buildRouteSegments(day)[index];
+  if (
+    !segment?.mode ||
+    !hasValidSegmentCoords(segment) ||
+    segment.planLeg.transitPreference === 'subway'
+  )
+    return null;
+  const same = segment.fromLngLat.every(
+    (value, i) => Number(value) === Number(segment.toLngLat[i])
+  );
+  const result = same
+    ? { ok: true, source: 'same-point', paths: [], detail: { duration: 0, distance: 0, steps: [] } }
+    : await searchModeSegment(segment, segment.mode, serial);
+  if (
+    serial !== state.routePlanningSerial ||
+    !result.ok ||
+    !Number.isFinite(result.detail?.duration)
+  )
+    return null;
+  return {
+    status: 'real',
+    seconds: result.detail.duration,
+    meters: result.detail.distance,
+    paths: result.paths,
+    steps: result.detail.steps,
+    fetchedAt: Date.now(),
+    source: result.source || 'amap',
+    query: planRouteQuery(segment)
+  };
+}
+
+function planRouteQuery(segment) {
+  return {
+    from: segment.fromLngLat,
+    to: segment.toLngLat,
+    mode: segment.mode,
+    fromCity: segment.fromCity,
+    toCity: segment.toCity,
+    transitPreference: segment.planLeg.transitPreference ?? null
+  };
+}
+
+export function cancelDayPlanQueries() {
+  const state = getAppState();
+  state.routePlanningSerial++;
+  if (state.routePlanningTimer) clearTimeout(state.routePlanningTimer);
+  for (const day of getTrip()?.days || [])
+    for (const leg of day.plan?.legs || [])
+      if (leg.queryState === 'pending') cachePlanRoute(day.id, leg.from, leg.to, null, 'cancelled');
 }
 
 export function dayDisplayLabel(day) {
@@ -193,7 +346,7 @@ function isValidLngLat(value) {
 
 export function clearAllRoutes() {
   const state = getAppState();
-  state.routePlanningSerial += 1;
+  cancelDayPlanQueries();
   if (state.routePlanningTimer) {
     clearTimeout(state.routePlanningTimer);
     state.routePlanningTimer = null;

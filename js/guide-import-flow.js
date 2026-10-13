@@ -61,6 +61,7 @@ export async function buildGuideDraft(extracted, source, onProgress, signal) {
       timeSlot: item.time_slot || '',
       note: item.note || '',
       sourceQuote: item.source_quote || '',
+      sourceFacts: item.time_facts || null,
       poi,
       matched: Boolean(poi),
       deleted: false
@@ -109,21 +110,26 @@ export function withTimeout(promise, ms, fallback, label = '异步任务') {
 }
 
 export function normalizeGuideEventsFromSource(events, sourceText, warnings) {
-  const routePlan = extractMainRoutePlan(sourceText);
+  const routePlan = extractMainRoutePlan(sourceText, warnings);
   if (!routePlan.length) return events;
 
   const extractedByName = new Map();
   for (const item of events || []) {
     const key = normalizeGuidePlaceName(item?.place_name || '');
-    if (key && !extractedByName.has(key)) extractedByName.set(key, item);
+    if (key) {
+      if (!extractedByName.has(key)) extractedByName.set(key, []);
+      extractedByName.get(key).push(item);
+    }
   }
 
-  const normalized = routePlan.map(routeItem => {
+  const normalized = routePlan.map((routeItem, index) => {
     const key = normalizeGuidePlaceName(routeItem.name);
-    const existing = extractedByName.get(key);
+    const existing = extractedByName.get(key)?.shift();
     const note = compactGuideNote([routeItem.note, existing?.note].filter(Boolean).join('；'));
     return {
       ...existing,
+      source_sequence: index,
+      time_facts: { ...existing?.time_facts, order: index },
       place_name: routeItem.name,
       day: routeItem.day,
       time_slot: existing?.time_slot ?? null,
@@ -138,7 +144,7 @@ export function normalizeGuideEventsFromSource(events, sourceText, warnings) {
   return normalized.length ? normalized : events;
 }
 
-function extractMainRoutePlan(sourceText) {
+function extractMainRoutePlan(sourceText, warnings) {
   const text = String(sourceText || '');
   const lines = text
     .split(/\r?\n/g)
@@ -146,6 +152,7 @@ function extractMainRoutePlan(sourceText) {
     .filter(Boolean);
   const routeItems = [];
   const noteByPlace = new Map();
+  const routeOrders = [];
   let currentDay = null;
   let routeLineCount = 0;
 
@@ -162,7 +169,31 @@ function extractMainRoutePlan(sourceText) {
         .map(cleanRoutePlaceName)
         .filter(Boolean);
 
-      for (const point of points) {
+      const names = points.map(normalizeGuidePlaceName);
+      for (const previous of routeOrders.filter(route => route.day === day)) {
+        // Repeated visits are intentional; only compare places occurring once in each route.
+        const shared = names.filter(
+          (name, i) =>
+            names.indexOf(name) === i &&
+            names.lastIndexOf(name) === i &&
+            previous.names.includes(name) &&
+            previous.names.indexOf(name) === previous.names.lastIndexOf(name)
+        );
+        if (
+          shared.length > 1 &&
+          previous.names.filter(name => shared.includes(name)).join('\n') !== shared.join('\n')
+        ) {
+          warnings?.push(
+            `Day ${day} 原文顺序冲突：${previous.line} / ${line}。预览保留提取结果供核对，请确认采用顺序后导入。`
+          );
+          return [];
+        }
+      }
+      routeOrders.push({ day, names, line });
+
+      const last = routeItems.at(-1);
+      const continued = last?.day === day && normalizeGuidePlaceName(last.name) === names[0];
+      for (const point of continued ? points.slice(1) : points) {
         routeItems.push({
           name: point,
           day,
@@ -179,12 +210,8 @@ function extractMainRoutePlan(sourceText) {
     }
   }
 
-  const seen = new Set();
   const result = [];
   for (const item of routeItems) {
-    const key = `${item.day}:${normalizeGuidePlaceName(item.name)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
     const note = findRouteNoteForPlace(item.name, noteByPlace);
     result.push({
       ...item,
@@ -201,7 +228,7 @@ function parseRouteDay(line) {
   const zhMap = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
   const route = line.match(/路线\s*([一二三四五六1-6])/);
   if (route) return zhMap[route[1]] || Number(route[1]) || null;
-  const day = line.match(/(?:Day|DAY|D)\s*([1-9])/);
+  const day = line.match(/(?:Day|DAY|D)\s*([1-9]\d?)(?!\d)/);
   if (day) return Number(day[1]);
   return null;
 }
@@ -401,7 +428,7 @@ async function enrichGeocodedPOI(geocoded, placeName) {
   // 用 similarity 筛掉"附近的不同店铺"——确保命中是同一个地点
   // Nearby enrichment must obey the same identity threshold as direct search.
   const best = pickBestMatch(places, placeName, 0.7);
-  if (!best) return null;
+  if (!best || !isGuideCity(best, geocoded.city)) return null;
 
   // 优先用 PlaceSearch 的完整数据（含 rating/cost/photo）
   // lnglat 用 PlaceSearch 给的（POI 入口位置，比 Geocoder 的"地理中心"更适合 marker）
@@ -437,18 +464,23 @@ async function geocodeAsPOI(placeName, city) {
         resolve(null);
         return;
       }
-      resolve({
+      const poi = {
         id: `geo-${geo.adcode || Date.now().toString(36)}`,
         name: placeName, // Geocoder 没返回 name，用用户输入兜底
         addr: String(geo.formattedAddress || '').trim(),
-        province: String(geo.addressComponent?.province || '').trim(),
+        province: String(geo.province || geo.addressComponent?.province || '').trim(),
         city: String(
-          geo.addressComponent?.city || geo.addressComponent?.province || city || ''
+          geo.city ||
+            geo.addressComponent?.city ||
+            geo.province ||
+            geo.addressComponent?.province ||
+            ''
         ).trim(),
         district: String(geo.addressComponent?.district || '').trim(),
         type: '',
         lnglat: [lng, lat]
-      });
+      };
+      resolve(isGuideCity(poi, city) ? poi : null);
     });
   });
 }
@@ -470,30 +502,18 @@ function extractNounKeywords(note, sourceQuote, excludeKeyword = '') {
   return dedup.slice(0, 2);
 }
 
-// 攻略地点搜索的降级：
-//   Layer A: city 名（AI/用户给的城市）
-//   Layer B: 全国搜（city: false）
-//
-// 不回退 AppConfig.cityCode（默认北京）。否则上海攻略在 city 搜索失败后，会被北京候选污染。
+function isGuideCity(place, city) {
+  return !city || String(place.city).replace(/市$/, '') === String(city).replace(/市$/, '');
+}
+
+// 自动匹配只接受攻略城市；未知城市才全国检索，不把异城候选自动绑定。
 export async function searchGuidePlaces(keyword, city, pageSize = 8, signal) {
   const state = getAppState();
   if (!keyword) return [];
   const AMap = state.AMap || (await loadAMap());
   if (!state.AMap) setAMap(AMap);
 
-  const cityCandidates = [];
-  if (city) cityCandidates.push(city); // A: AI/用户城市名
-  cityCandidates.push(false); // B: 全国兜底。不要回退默认北京，避免跨城市攻略误匹配。
-
-  for (const cityArg of cityCandidates) {
-    signal?.throwIfAborted?.();
-    const places = await searchPlaces(AMap, keyword, { city: cityArg, pageSize, signal });
-    log.debug(
-      `[guide-search] "${keyword}" tried city=${JSON.stringify(cityArg)} → count=${places.length}`,
-      places.length ? `first="${places[0]?.name}"` : ''
-    );
-    if (places.length) return places;
-  }
-  log.warn(`"${keyword}" 搜索 0 结果`, { tried: cityCandidates });
-  return [];
+  signal?.throwIfAborted?.();
+  const places = await searchPlaces(AMap, keyword, { city: city || false, pageSize, signal });
+  return places.filter(place => isGuideCity(place, city));
 }

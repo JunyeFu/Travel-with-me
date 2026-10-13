@@ -4,6 +4,418 @@ import { expect, test } from '@playwright/test';
 import { build2DRuntimeManifest } from '../../scripts/active-2d-runtime.mjs';
 import { buildReviewHtml, RELEASE_LAYER_IDS } from '../../scripts/release-evidence.mjs';
 
+test('day assessment enables, computes terminal legs, adopts and undoes, restores and shares', async ({
+  page
+}) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await installMockAMap(page);
+  await seedWorkspace(page, SEEDED_WORKSPACE, true);
+  await page.goto('/');
+  await expect(page.locator('.day-plan-btn')).toBeVisible();
+  await page.locator('.day-plan-btn').click();
+  const modal = page.locator('.day-group .plan-form');
+  await modal.locator('[name=startLocation]').selectOption('loc_unscheduled');
+  await modal.locator('[name=endLocation]').selectOption('loc_unscheduled');
+  await modal.locator('[name=startTime]').fill('09:00');
+  await modal.locator('[name=endTime]').fill('12:00');
+  await modal.locator('[name=date]').fill('2026-10-08');
+  await modal.locator('[name=min]').nth(0).fill('60');
+  await modal.locator('[name=max]').nth(0).fill('90');
+  await modal.locator('[name=min]').nth(1).fill('30');
+  await modal.locator('[name=max]').nth(1).fill('45');
+  await modal.locator('.plan-batch').selectOption('walking');
+  await modal.locator('.plan-calculate').click();
+  await expect(modal.locator('.plan-results')).toContainText('预计结束 11:15—12:00');
+  await expect(modal.locator('.plan-leg')).toHaveCount(3);
+  await modal.locator('[data-leg="1"] .plan-compare-options summary').click();
+  await modal.locator('[data-leg="1"] [name=compareMode]').selectOption('driving');
+  await modal.locator('.plan-compare').nth(1).click();
+  await expect(modal.locator('.plan-preview')).toContainText('分别节省 0/0 分钟');
+  await expect(modal.locator('.plan-suggestions')).toHaveAttribute('open', '');
+  await modal.locator('.plan-apply').click();
+  await expect(modal.locator('[data-leg="1"] [name=mode]')).toHaveValue('driving');
+  await modal.locator('.plan-undo').click();
+  await expect(modal.locator('[data-leg="1"] [name=mode]')).toHaveValue('walking');
+  await modal.locator('.plan-suggestions summary').click();
+  await modal.locator('.plan-short').first().click();
+  await expect(modal.locator('.plan-preview')).toContainText('分别节省 0/30 分钟');
+  await modal.locator('.plan-apply').click();
+  await expect(modal.locator('[name=max]').first()).toHaveValue('60');
+  await modal.locator('.plan-undo').click();
+  await expect(modal.locator('[name=max]').first()).toHaveValue('90');
+  await page.reload();
+  await expect(page.locator('.day-plan-summary')).toContainText('12:00');
+  await modal.locator('.plan-settings summary').click();
+  await expect(modal.locator('[name=date]')).toHaveValue('2026-10-08');
+  await expect(modal.locator('.plan-results')).toContainText('较长耗时情景没有额外缓冲');
+  await modal.locator('.plan-settings summary').click();
+  const overflow = await modal.evaluate(el => el.scrollWidth > el.clientWidth);
+  expect(overflow).toBe(false);
+  if (test.info().project.name === 'chromium') {
+    for (const [width, height] of [
+      [360, 800],
+      [390, 844],
+      [768, 1024],
+      [1440, 900],
+      [1536, 1024]
+    ]) {
+      await page.setViewportSize({ width, height });
+      await page.locator('#itinerary-container').evaluate(el => (el.scrollTop = 0));
+      expect(await modal.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(false);
+      await page.screenshot({
+        path: `D:/Agent/project-navigation/sites/travel-with-me/.local/time-assessment-2026-10-09/preview-${width}.png`
+      });
+    }
+  }
+  await page.evaluate(() => {
+    window.__shareLabels = [];
+    const original = window.CanvasRenderingContext2D.prototype.fillText;
+    window.CanvasRenderingContext2D.prototype.fillText = function (text, ...args) {
+      window.__shareLabels.push(String(text));
+      return original.call(this, text, ...args);
+    };
+  });
+  await page.getByRole('button', { name: '分享长图' }).click();
+  await expect(page.locator('.share-image-preview img')).toHaveAttribute(
+    'src',
+    /^data:image\/png/,
+    { timeout: 15000 }
+  );
+  expect(
+    await page.evaluate(() => window.__shareLabels.some(text => text.includes('到达 09:15')))
+  ).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('day assessment leaves missing data incomplete and restores keyboard focus', async ({
+  page
+}) => {
+  await installMockAMap(page);
+  await seedWorkspace(page);
+  await page.goto('/');
+  await page.locator('.day-plan-btn').click();
+  const modal = page.locator('.day-group .plan-form');
+  await expect(modal.locator('.plan-results')).toContainText('未完整计算');
+  await expect(modal.locator('[data-leg] select').first()).toHaveValue('');
+  await expect(page.locator('.day-plan-modal')).toHaveCount(0);
+  await modal.locator('[name=startLocation]').focus();
+  await page.keyboard.press('Tab');
+  await expect(modal.locator('[name=startTime]')).toBeFocused();
+});
+
+test('day assessment cancels late route responses without saving stale estimates', async ({
+  page
+}) => {
+  await installMockAMap(page);
+  await seedWorkspace(page);
+  await page.goto('/');
+  await page.locator('.day-plan-btn').click();
+  const modal = page.locator('.day-group .plan-form');
+  await modal.locator('[name=startLocation]').selectOption('loc_unscheduled');
+  await modal.locator('[name=endLocation]').selectOption('loc_unscheduled');
+  await modal.locator('[name=startTime]').fill('09:00');
+  await modal.locator('[name=endTime]').fill('12:00');
+  await modal.locator('.plan-batch').selectOption('walking');
+  let pending;
+  await page.route('**/_AMapService/v3/direction/walking**', route => {
+    pending = route;
+  });
+  await modal.locator('.plan-calculate').click();
+  await expect.poll(() => Boolean(pending)).toBe(true);
+  await expect(modal.locator('[name=startTime]')).toBeEnabled();
+  await modal.locator('.plan-cancel').click();
+  await modal.locator('.plan-settings summary').click();
+  await modal.locator('[name=startTime]').fill('09:30');
+  await modal.locator('.plan-save').click();
+  await pending.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      status: '1',
+      route: {
+        paths: [
+          { duration: 600, distance: 1000, steps: [{ polyline: '116.409,39.91;116.397,39.908' }] }
+        ]
+      }
+    })
+  });
+  await page.evaluate(async () => {
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  });
+  const legs = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem('trip-app:workspace')).workspace.trips[0].days[0].plan.legs
+  );
+  expect(legs.every(leg => !leg.estimate)).toBe(true);
+});
+
+test('day assessment preserves partial prefix, incomplete edits and mobile view state', async ({
+  page,
+  isMobile
+}) => {
+  const form = await openComputedAssessment(page);
+  await expect(form.locator('.plan-results')).toContainText('预计结束 11:45—12:30');
+  await form.locator('.plan-event summary').nth(1).click();
+  await form.locator('[name=max]').nth(1).fill('');
+  await form.locator('.plan-save').click();
+  await expect(form.locator('.plan-results')).toContainText('未完整计算');
+  await expect(page.locator('.event-plan-time').nth(0)).toContainText('到达 09:20');
+  await expect(page.locator('.event-plan-time').nth(1)).toContainText(
+    '到达 10:50—11:20 · 离开 待计算'
+  );
+  await expect(form.locator('[name=min]').nth(1)).toHaveValue('30');
+  await page.reload();
+  await expect(form.locator('[name=max]').nth(1)).toHaveValue('');
+  await expect(form.locator('[name=min]').nth(1)).toHaveValue('30');
+  await expect(form.locator('.plan-leg')).toHaveCount(3);
+  if (isMobile) {
+    await form.locator('[name=min]').nth(1).fill('44');
+    await page.locator('#mobile-map-tab').click();
+    await expect(page.locator('#map-panel')).toBeVisible();
+    await page.locator('#mobile-list-tab').click();
+    await expect(form.locator('[name=min]').nth(1)).toHaveValue('44');
+  }
+  await page.screenshot({
+    path: `D:/Agent/project-navigation/sites/travel-with-me/.local/time-assessment-2026-10-09/partial-${test.info().project.name}.png`
+  });
+});
+
+test('day assessment failed refresh retains original timestamps without using history as current', async ({
+  page
+}) => {
+  const form = await openComputedAssessment(page);
+  const stampBefore = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem('trip-app:workspace')).workspace.trips[0].days[0].plan.legs[0]
+        .estimate.fetchedAt
+  );
+  await page.evaluate(async () => {
+    (await import('/js/state.js')).getAppState().AMap.__fallback = true;
+  });
+  await page.route('**/_AMapService/v3/direction/**', route =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ status: '0', info: 'CONTROLLED_REFRESH_FAILURE' })
+    })
+  );
+  await form.locator('.plan-calculate').click();
+  await expect(form.locator('.plan-results')).toContainText('未完整计算');
+  await expect(form.locator('.plan-route-source').first()).toContainText('更新失败');
+  const leg = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem('trip-app:workspace')).workspace.trips[0].days[0].plan.legs[0]
+  );
+  expect(leg.estimate).toBeNull();
+  expect(leg.previousEstimate.fetchedAt).toBe(stampBefore);
+  await page.reload();
+  await expect(form.locator('.plan-route-source').first()).toContainText('更新失败');
+  await expect(form.locator('.plan-results')).toContainText('未完整计算');
+});
+
+test('day assessment save failure offers retry and a JSON backup of adopted values', async ({
+  page
+}) => {
+  const form = await openComputedAssessment(page);
+  await page.evaluate(() => {
+    window.__originalStorageSet = window.Storage.prototype.setItem;
+    window.Storage.prototype.setItem = function (key, value) {
+      if (key === 'trip-app:workspace')
+        throw new DOMException('Controlled quota failure', 'QuotaExceededError');
+      return window.__originalStorageSet.call(this, key, value);
+    };
+  });
+  await form.locator('.plan-settings summary').click();
+  await form.locator('[name=endTime]').fill('13:00');
+  await form.locator('.plan-save').click();
+  await expect(form.locator('.plan-message')).toContainText('保存失败');
+  const downloadPromise = page.waitForEvent('download');
+  await form.locator('.plan-export').click();
+  const download = await downloadPromise;
+  const backup = JSON.parse(await readFile(await download.path(), 'utf8'));
+  expect(backup.workspace.trips[0].days[0].plan.end.minute).toBe(780);
+  await page.evaluate(() => {
+    window.Storage.prototype.setItem = window.__originalStorageSet;
+  });
+  await form.locator('.plan-retry').click();
+  await expect(form.locator('.plan-message')).toContainText('已保存到浏览器本地');
+  await page.reload();
+  await expect(form.locator('[name=endTime]')).toHaveValue('13:00');
+});
+
+test('day assessment keeps ordinary source time neutral and confirmed appointments independent', async ({
+  page
+}) => {
+  const form = await openComputedAssessment(page);
+  await form.locator('.plan-event summary').first().click();
+  await form.locator('[name=fixed]').first().fill('09:10');
+  await form.locator('.plan-save').click();
+  await expect(form.locator('.plan-conflicts')).toHaveCount(0);
+  await form.locator('.plan-event summary').first().click();
+  await form.locator('[name=fixed]').first().fill('09:10');
+  await form.locator('[name=fixedConfirmed]').first().check();
+  await form.locator('.plan-save').click();
+  await expect(form.locator('.plan-conflicts')).toContainText('迟到 10 分钟');
+  await form.locator('.plan-event summary').nth(1).click();
+  await form.locator('[name=max]').nth(1).fill('');
+  await form.locator('.plan-save').click();
+  await expect(form.locator('.plan-results')).toContainText('未完整计算');
+  await expect(form.locator('.plan-conflicts')).toContainText('迟到 10 分钟');
+});
+
+test('day assessment local undo preserves unrelated edits and stale comparisons are discarded', async ({
+  page
+}) => {
+  const form = await openComputedAssessment(page);
+  await form.locator('.plan-suggestions summary').click();
+  await form.locator('.plan-short').first().click();
+  await form.locator('.plan-apply').click();
+  await form.locator('.plan-settings summary').click();
+  await form.locator('[name=endTime]').fill('13:00');
+  await form.locator('.plan-save').click();
+  await form.locator('.plan-undo').click();
+  await expect(form.locator('[name=max]').first()).toHaveValue('90');
+  await expect(form.locator('[name=endTime]')).toHaveValue('13:00');
+  await expect(form.locator('.plan-results')).toContainText('预计结束 11:45—12:30');
+  const original = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('trip-app:workspace')).workspace.trips[0].guideSource
+  );
+  await form.locator('[data-leg="1"] .plan-compare-options summary').click();
+  await form.locator('[data-leg="1"] [name=compareMode]').selectOption('driving');
+  let pending;
+  await page.route('**/_AMapService/v3/direction/driving**', route => {
+    pending = route;
+  });
+  await form.locator('.plan-compare').nth(1).click();
+  await expect.poll(() => Boolean(pending)).toBe(true);
+  await form.locator('.plan-event summary').first().click();
+  await form.locator('[name=min]').first().fill('61');
+  await form.locator('.plan-save').click();
+  await pending.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      status: '1',
+      route: { paths: [{ duration: 60, distance: 10, steps: [] }] }
+    })
+  });
+  await page.evaluate(
+    () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  );
+  await expect(form.locator('.plan-apply')).toBeDisabled();
+  const day = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('trip-app:workspace')).workspace.trips[0].days[0]
+  );
+  expect(day.plan.legs[1].mode).toBe('walking');
+  expect(day.events[0].visit.min).toBe(61);
+  expect(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem('trip-app:workspace')).workspace.trips[0].guideSource
+    )
+  ).toEqual(original);
+});
+
+test('changing comparison mode cancels the pending preview without accepting its late result', async ({
+  page
+}) => {
+  const form = await openComputedAssessment(page);
+  await form.locator('[data-leg="1"] .plan-compare-options summary').click();
+  await form.locator('[data-leg="1"] [name=compareMode]').selectOption('driving');
+  let pending;
+  await page.route('**/_AMapService/v3/direction/driving**', route => {
+    pending = route;
+  });
+  await form.locator('.plan-compare').nth(1).click();
+  await expect.poll(() => Boolean(pending)).toBe(true);
+  await form.locator('[data-leg="1"] [name=compareMode]').selectOption('riding');
+  await expect(form.locator('.plan-cancel')).toBeHidden();
+  await pending.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      status: '1',
+      route: { paths: [{ duration: 60, distance: 10, steps: [] }] }
+    })
+  });
+  await page.evaluate(
+    () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  );
+  await expect(form.locator('.plan-apply')).toBeDisabled();
+  await expect(form.locator('.plan-preview')).not.toContainText('建议预计结束');
+  const mode = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem('trip-app:workspace')).workspace.trips[0].days[0].plan.legs[1]
+        .mode
+  );
+  expect(mode).toBe('walking');
+});
+
+test('switching trips cancels the old assessment preview without a late callback error', async ({
+  page
+}) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const form = await openComputedAssessment(page);
+  await form.locator('[data-leg="1"] .plan-compare-options summary').click();
+  await form.locator('[data-leg="1"] [name=compareMode]').selectOption('driving');
+  let pending;
+  await page.route('**/_AMapService/v3/direction/driving**', route => {
+    pending = route;
+  });
+  await form.locator('.plan-compare').nth(1).click();
+  await expect.poll(() => Boolean(pending)).toBe(true);
+  await page.getByRole('button', { name: '新建行程' }).click();
+  await page.locator('.trip-title-input').fill('取消旧预览的新行程');
+  await page.getByRole('button', { name: '确定' }).click();
+  await expect(page.locator('#trip-title-text')).toHaveText('取消旧预览的新行程');
+  await pending.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      status: '1',
+      route: { paths: [{ duration: 60, distance: 10, steps: [] }] }
+    })
+  });
+  await page.evaluate(
+    () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  );
+  await expect(page.locator('.plan-preview')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+async function openComputedAssessment(page) {
+  await installMockAMap(page);
+  await seedWorkspace(page, SEEDED_WORKSPACE, true);
+  await page.route('**/_AMapService/v3/direction/**', route => {
+    const url = new URL(route.request().url());
+    const from = url.searchParams.get('origin'),
+      to = url.searchParams.get('destination');
+    const seconds = from === '116.409,39.91' ? 1200 : to === '116.409,39.91' ? 1500 : 1800;
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: '1',
+        route: {
+          paths: [{ duration: seconds, distance: 1000, steps: [{ polyline: from + ';' + to }] }]
+        }
+      })
+    });
+  });
+  await page.goto('/');
+  await expect(page).toHaveTitle('Travel With Me');
+  await page.locator('.day-plan-btn').click();
+  const form = page.locator('.day-group .plan-form');
+  await form.locator('[name=startLocation]').selectOption('loc_unscheduled');
+  await form.locator('[name=endLocation]').selectOption('loc_unscheduled');
+  await form.locator('[name=startTime]').fill('09:00');
+  await form.locator('[name=endTime]').fill('12:00');
+  await form.locator('[name=min]').nth(0).fill('60');
+  await form.locator('[name=max]').nth(0).fill('90');
+  await form.locator('[name=min]').nth(1).fill('30');
+  await form.locator('[name=max]').nth(1).fill('45');
+  await form.locator('.plan-batch').selectOption('walking');
+  await form.locator('.plan-calculate').click();
+  await expect(form.locator('.plan-results')).toContainText('预计结束 11:45—12:30');
+  return form;
+}
+
 const SEEDED_WORKSPACE = {
   trips: [
     {
@@ -189,6 +601,11 @@ function createGeoAssetWorkspace() {
 }
 
 async function installMockAMap(page, unresolvedLocations = false) {
+  // Offline interaction fixtures use system fonts; a blocked external stylesheet
+  // must not prevent DOMContentLoaded. Real visual/provider checks remain separate.
+  await page.route('https://fonts.googleapis.com/**', route =>
+    route.fulfill({ contentType: 'text/css', body: '' })
+  );
   await page.route('**/_AMapService/**', route =>
     route.fulfill({
       status: 200,
@@ -491,17 +908,21 @@ function buildMockBffPoi(keyword) {
   };
 }
 
-async function seedWorkspace(page, workspace = SEEDED_WORKSPACE) {
-  await page.addInitScript(seed => {
-    window.localStorage.setItem(
-      'trip-app:workspace',
-      JSON.stringify({
-        version: 5,
-        savedAt: Date.now(),
-        workspace: seed
-      })
-    );
-  }, workspace);
+async function seedWorkspace(page, workspace = SEEDED_WORKSPACE, once = false) {
+  await page.addInitScript(
+    ({ seed, once }) => {
+      if (once && window.localStorage.getItem('trip-app:workspace')) return;
+      window.localStorage.setItem(
+        'trip-app:workspace',
+        JSON.stringify({
+          version: 5,
+          savedAt: Date.now(),
+          workspace: seed
+        })
+      );
+    },
+    { seed: workspace, once }
+  );
 }
 
 async function openSeededDesktop(page, isMobile, options = {}) {

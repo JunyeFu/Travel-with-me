@@ -225,7 +225,13 @@ function getVisibleMarkers(dayId) {
   const day = trip.days.find(d => d.id === dayId);
   if (!day) return [];
 
-  const ids = unique(day.events.map(e => e.locationId));
+  const ids = unique(
+    [
+      ...day.events.map(e => e.locationId),
+      day.plan?.start?.locationId,
+      day.plan?.end?.locationId
+    ].filter(Boolean)
+  );
   return ids.map(id => state.markers.get(id)).filter(Boolean);
 }
 
@@ -370,6 +376,7 @@ export function drawRoutePaths(segment, paths, dashed = false) {
     color: segment.color,
     dashed
   });
+  if (state.selectedTarget?.kind === 'route') highlightSegment(state.selectedTarget.segmentId);
   if (polylines.length) document.getElementById('route-daylight-legend').hidden = false;
 }
 
@@ -497,6 +504,14 @@ export function clearSegmentHighlight() {
 function getSegmentEndpointIds(segmentId) {
   const trip = getTrip();
   for (const day of trip?.days || []) {
+    const planIndex = day.plan?.legs.findIndex(
+      (_, index) => `${day.id}-plan-route-${index}` === segmentId
+    );
+    if (planIndex >= 0)
+      return {
+        from: day.plan.legs[planIndex].fromLocationId,
+        to: day.plan.legs[planIndex].toLocationId
+      };
     for (let i = 0; i < (day.events?.length || 0) - 1; i += 1) {
       if (`${day.id}-route-${i}` === segmentId) {
         return {

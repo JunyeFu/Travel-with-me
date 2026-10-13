@@ -16,6 +16,7 @@
     "test:e2e": "node scripts/run-e2e-smoke.mjs",
     "test:e2e:live-provider": "node scripts/run-live-provider-smoke.mjs",
     "test:live:deepseek": "node scripts/run-live-deepseek-smoke.mjs",
+    "test:live:day-plan": "node scripts/run-live-day-plan.mjs",
     "test:guide-import": "node scripts/evaluate-guide-import.mjs",
     "test:guide-import:live": "node scripts/evaluate-live-guide-import.mjs",
     "release:evidence:check": "node scripts/check-release-evidence.mjs",

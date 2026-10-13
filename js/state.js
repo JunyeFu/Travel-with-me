@@ -15,6 +15,7 @@ import { AppConfig } from './config.js';
 // V5：date 字段已删除，addDaysISO/isISODate/todayISO 全部不再使用
 import { getTimeSlotRank, normalizeTimeSlot } from './time-slots.js';
 import { normalizeRouteToNext } from './route-config.js';
+import { reconcilePlan } from './day-plan.js';
 
 // ─── 内部状态（不直接导出） ─────────────────────────────
 
@@ -215,7 +216,8 @@ export function addLocation(loc) {
     city: loc.city || '',
     district: loc.district || '',
     tag: loc.tag || '',
-    source: loc.source || (loc.lnglat ? 'user' : '')
+    source: loc.source || (loc.lnglat ? 'user' : ''),
+    ...(loc.keepUnmatched ? { keepUnmatched: true } : {})
   };
   emit('trip:changed', { kind: 'location:added', locationId: id });
   return id;
@@ -225,7 +227,23 @@ export function updateLocation(locationId, patch) {
   if (!trip) return false;
   const loc = trip.locations[locationId];
   if (!loc) return false;
+  const previousCoords = loc.lnglat,
+    previousCity = loc.city;
   applyLocationPatch(loc, patch);
+  if (
+    previousCoords?.[0] !== loc.lnglat?.[0] ||
+    previousCoords?.[1] !== loc.lnglat?.[1] ||
+    previousCity !== loc.city
+  ) {
+    for (const day of trip.days)
+      for (const leg of day.plan?.legs || [])
+        if (leg.fromLocationId === locationId || leg.toLocationId === locationId) {
+          leg.previousEstimate =
+            leg.estimate?.status === 'real' ? leg.estimate : leg.previousEstimate;
+          leg.estimate = null;
+          leg.queryState = 'changed';
+        }
+  }
   emit('location:updated', { locationId });
   emit('trip:changed', { kind: 'location:updated', locationId });
   return true;
@@ -248,6 +266,7 @@ function applyLocationPatch(loc, patch) {
   if (patch.lnglat) {
     loc.lnglat = patch.lnglat;
     loc.resolved = true;
+    delete loc.keepUnmatched;
   }
   if (patch.photo != null) loc.photo = patch.photo;
   if (patch.type != null) loc.type = patch.type;
@@ -271,6 +290,7 @@ export function updateTripMeta(patch) {
   if (patch.title != null) trip.title = patch.title;
   if (patch.subtitle != null) trip.subtitle = patch.subtitle;
   if (patch.city != null) trip.city = patch.city;
+  if (patch.guideSource != null) trip.guideSource = structuredClone(patch.guideSource);
   emit('trip:changed', { kind: 'trip:updated' });
   return true;
 }
@@ -305,6 +325,32 @@ export function updateDay(dayId, patch) {
   if (patch.title != null) day.title = String(patch.title).trim();
 
   emit('trip:changed', { kind: 'day:updated', dayId });
+  return true;
+}
+
+export function updateDayPlan(dayId, plan, eventPatches = []) {
+  const day = trip?.days.find(item => item.id === dayId);
+  if (!day) return false;
+  for (const patch of eventPatches) {
+    const event = day.events.find(item => item.id === patch.id);
+    if (event) Object.assign(event, patch);
+  }
+  day.plan = reconcilePlan(day, structuredClone(plan), trip.locations, trip.city);
+  day.events.forEach(event => {
+    delete event.routeToNext;
+  });
+  emit('trip:changed', { kind: 'day:plan-updated', dayId });
+  return true;
+}
+
+export function cachePlanRoute(dayId, from, to, estimate, queryState = 'success') {
+  const day = trip?.days.find(item => item.id === dayId);
+  const leg = day?.plan?.legs.find(item => item.from === from && item.to === to);
+  if (!leg) return false;
+  if (leg.estimate?.status === 'real') leg.previousEstimate = structuredClone(leg.estimate);
+  leg.estimate = structuredClone(estimate);
+  leg.queryState = queryState;
+  emit('trip:changed', { kind: 'day:plan-calculated', dayId, phase: queryState });
   return true;
 }
 
@@ -347,12 +393,15 @@ export function addEventToDay(dayId, event, options = {}) {
     ...(timeSlot ? { timeSlot } : {}),
     ...(note ? { note } : {}),
     locationId: event.locationId,
+    ...(event.sourceFacts ? { sourceFacts: structuredClone(event.sourceFacts) } : {}),
+    ...(event.visit ? { visit: structuredClone(event.visit) } : {}),
     ...(event.routeToNext ? { routeToNext: normalizeRouteToNext(event.routeToNext) } : {})
   };
 
-  const insertIndex = options.preserveOrder
-    ? getPreserveOrderInsertIndex(day, options)
-    : getTimeSlotAppendIndex(day, timeSlot, options);
+  const insertIndex =
+    options.preserveOrder || day.plan
+      ? getPreserveOrderInsertIndex(day, options)
+      : getTimeSlotAppendIndex(day, timeSlot, options);
   day.events.splice(insertIndex, 0, newEvent);
   normalizeDayRoutes(day);
 
@@ -381,8 +430,10 @@ export function updateEventInDay(dayId, eventId, patch) {
     else delete event.note;
   }
   if (patch.locationId != null) event.locationId = patch.locationId;
+  if ('visit' in patch) event.visit = structuredClone(patch.visit);
+  if ('fixedStart' in patch) event.fixedStart = patch.fixedStart;
   if (patch.routeToNext) event.routeToNext = normalizeRouteToNext(patch.routeToNext);
-  if (patch.timeSlot != null && normalizeTimeSlot(event.timeSlot) !== previousSlot) {
+  if (!day.plan && patch.timeSlot != null && normalizeTimeSlot(event.timeSlot) !== previousSlot) {
     moveEventToTimeSlotEnd(day, eventId);
   }
   normalizeDayRoutes(day);
@@ -442,7 +493,10 @@ export function moveEventInDay(dayId, eventId, direction) {
   const from = day.events.findIndex(item => item.id === eventId);
   const to = direction === 'up' ? from - 1 : from + 1;
   if (from < 0 || to < 0 || to >= day.events.length) return false;
-  if (normalizeTimeSlot(day.events[from].timeSlot) !== normalizeTimeSlot(day.events[to].timeSlot)) {
+  if (
+    !day.plan &&
+    normalizeTimeSlot(day.events[from].timeSlot) !== normalizeTimeSlot(day.events[to].timeSlot)
+  ) {
     return false;
   }
 
@@ -464,6 +518,7 @@ export function reorderEventInDay(dayId, eventId, targetEventId) {
   const target = day.events.findIndex(item => item.id === targetEventId);
   if (from < 0 || target < 0) return false;
   if (
+    !day.plan &&
     normalizeTimeSlot(day.events[from].timeSlot) !== normalizeTimeSlot(day.events[target].timeSlot)
   ) {
     return false;
@@ -515,6 +570,8 @@ export function updateUnscheduledEvent(eventId, patch) {
     else delete ev.note;
   }
   if (patch.locationId != null) ev.locationId = patch.locationId;
+  if ('visit' in patch) ev.visit = structuredClone(patch.visit);
+  if ('fixedStart' in patch) ev.fixedStart = patch.fixedStart;
   // 不处理 routeToNext——未排期 events 没有这个字段
 
   emit('trip:changed', { kind: 'unscheduled:updated', eventId });
@@ -592,10 +649,13 @@ export function moveEventBetweenContainers(eventId, target = {}) {
       sourceArr.splice(sourceIdx, 0, event);
       return false;
     }
-    const insertIndex = getTimeSlotAppendIndex(targetDay, normalizeTimeSlot(event.timeSlot), {
-      afterEventId: target.afterEventId,
-      index: target.index
-    });
+    const insertionOptions = { afterEventId: target.afterEventId, index: target.index };
+    const insertIndex = targetDay.plan
+      ? getPreserveOrderInsertIndex(targetDay, insertionOptions)
+      : getTimeSlotAppendIndex(targetDay, normalizeTimeSlot(event.timeSlot), {
+          afterEventId: target.afterEventId,
+          index: target.index
+        });
     targetDay.events.splice(insertIndex, 0, event);
     normalizeDayRoutes(targetDay);
   }
@@ -701,7 +761,14 @@ function sortDayEventsByTimeSlot(day) {
     .map(item => item.event);
 }
 
-function normalizeDayRoutes(day) {
+function normalizeDayRoutes(day, locations = trip?.locations, city = trip?.city) {
+  if (day.plan) {
+    day.plan = reconcilePlan(day, day.plan, locations, city);
+    day.events.forEach(event => {
+      delete event.routeToNext;
+    });
+    return;
+  }
   day.events.forEach((event, index) => {
     if (index === day.events.length - 1) {
       delete event.routeToNext;
@@ -738,8 +805,12 @@ function uniqueLocationIds(events) {
 function isLocationReferenced(locationId) {
   if (!trip) return false;
   return (
-    trip.days.some(day => day.events.some(event => event.locationId === locationId)) ||
-    (trip.unscheduled || []).some(event => event.locationId === locationId)
+    trip.days.some(
+      day =>
+        day.events.some(event => event.locationId === locationId) ||
+        day.plan?.start?.locationId === locationId ||
+        day.plan?.end?.locationId === locationId
+    ) || (trip.unscheduled || []).some(event => event.locationId === locationId)
   );
 }
 
@@ -795,8 +866,8 @@ function normalizeTrip(input, fallbackTitle = '旅行路线') {
           return normalized;
         })
       : [];
-    sortDayEventsByTimeSlot(day);
-    normalizeDayRoutes(day);
+    if (!day.plan) sortDayEventsByTimeSlot(day);
+    normalizeDayRoutes(day, cloned.locations, cloned.city);
   });
   if (!cloned.days.length) {
     cloned.days.push(createBlankDay());

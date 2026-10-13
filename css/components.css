@@ -1,3 +1,257 @@
+.day-plan-btn {
+  flex: 1 0 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: white;
+  padding: 10px 14px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.day-title:has(.day-plan-btn) {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.plan-form {
+  min-width: 0;
+}
+.plan-form p {
+  margin: 8px 0;
+}
+.plan-form .text-button {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--accent-dark);
+  font: inherit;
+  font-size: 12px;
+  min-height: 36px;
+  cursor: pointer;
+}
+.plan-form button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.plan-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.plan-form label,
+.plan-grid label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  min-width: 0;
+}
+.plan-form input,
+.plan-form select,
+.plan-grid input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-strong);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.plan-form .plan-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.plan-checkbox input {
+  width: auto;
+  min-height: auto;
+}
+.plan-settings {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0 0 12px;
+}
+.plan-form summary {
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.plan-settings summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--text);
+}
+.plan-batch-label {
+  margin: 10px 0;
+}
+.plan-event {
+  padding: 0;
+  margin: 8px 0 0;
+  min-width: 0;
+  border-top: 1px solid var(--line);
+}
+.plan-event summary {
+  padding: 8px 0 0;
+}
+.plan-source,
+.event-plan-time,
+.plan-route-source {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.plan-results {
+  padding: 14px;
+  margin: 12px 0 16px;
+  border-radius: 9px;
+  background: #fcf3e8;
+  overflow-wrap: anywhere;
+}
+.plan-results h3 {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.6;
+  margin: 0 0 10px;
+  color: var(--accent-dark);
+}
+.plan-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.plan-totals strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--text);
+}
+.plan-timeline {
+  margin-top: 10px;
+}
+.plan-timeline ol {
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.plan-conflicts {
+  color: var(--accent-dark);
+  font-weight: 600;
+}
+.plan-leg {
+  display: grid;
+  gap: 7px;
+  margin: 6px 0 6px 42px;
+  min-width: 0;
+  font-size: 12px;
+}
+.plan-leg > span {
+  color: var(--muted);
+}
+.route-card:has(.plan-leg) .route-edit-btn {
+  display: none;
+}
+.route-card:has(.plan-leg) .route-body {
+  display: none;
+}
+.plan-leg {
+  grid-template-columns: minmax(80px, 110px) minmax(0, 1fr);
+  align-items: center;
+}
+.plan-leg .plan-checkbox,
+.plan-compare-options {
+  grid-column: 1 / -1;
+}
+.plan-route-history {
+  display: block;
+  padding: 8px 0;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.card[data-stop-number]::before {
+  content: attr(data-stop-number);
+  width: 24px;
+  height: 24px;
+  left: -33px;
+  top: 16px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: var(--accent);
+  color: white;
+  font-size: 13px;
+  font-weight: 700;
+}
+.plan-terminal {
+  padding: 8px 0 10px 28px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.plan-actions-slot {
+  padding: 12px 0;
+}
+.plan-actions,
+.plan-save-recovery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.plan-actions button {
+  flex: 1;
+  min-height: 44px;
+  font: inherit;
+  font-size: 13px;
+}
+.plan-preview,
+.plan-message {
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.plan-suggestions {
+  padding: 10px 0;
+}
+.plan-suggestions summary {
+  color: var(--accent-dark);
+}
+.plan-short {
+  margin: 8px 5px 0 0;
+}
+.plan-form :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .plan-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .plan-leg {
+    margin-left: 28px;
+  }
+  .plan-settings summary {
+    flex-direction: column;
+    gap: 5px;
+  }
+}
+[hidden] {
+  display: none !important;
+}
+
 /* css/components.css
  * 组件层：workspace tabs、cards、modals、forms、buttons、pickers 等
  * 所有 UI 组件样式，不包含布局骨架
@@ -921,32 +1175,25 @@
 
 .route-daylight-scale {
   height: 6px;
-  margin: 7px 0 4px;
+  margin: 0 0 4px;
   border-radius: 3px;
   background: linear-gradient(
     to right,
-    #86b8db 0% 29.167%,
-    #9cbdc9 29.167% 33.333%,
-    #b2c6b8 33.333% 37.5%,
-    #c7cca6 37.5% 45.833%,
-    #ddd394 45.833% 58.333%,
-    #c7cca6 58.333% 66.667%,
-    #b2c6b8 66.667% 70.833%,
-    #9cbdc9 70.833% 75%,
-    #86b8db 75% 100%
+    #31566b 0% 29.167%,
+    #3b657b 29.167% 33.333%,
+    #47768c 33.333% 37.5%,
+    #53879b 37.5% 45.833%,
+    #6196a8 45.833% 58.333%,
+    #53879b 58.333% 66.667%,
+    #47768c 66.667% 70.833%,
+    #3b657b 70.833% 75%,
+    #31566b 75% 100%
   );
 }
 
 .route-daylight-hours {
   display: flex;
   justify-content: space-between;
-}
-
-.route-daylight-legend small {
-  display: block;
-  margin-top: 5px;
-  color: var(--muted);
-  font-size: 10px;
 }
 
 .route-meta,

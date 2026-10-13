@@ -56,6 +56,7 @@ import {
   moveEventBetweenContainers,
   batchTripChanges,
   updateRouteToNext,
+  updateDayPlan,
   on
 } from './state.js';
 import {
@@ -98,6 +99,14 @@ import { openWorkspaceImportModal } from './render/workspace-import-modal.js';
 import { bindShareButton } from './render/share-flow.js?v=20260901-s4b';
 import { renderWorkspaceTabs, closeWorkspaceMenu } from './render/workspace-tabs.js';
 import { scheduleRoutePlanning, clearAllRoutes } from './route-planner.js?v=20260622-map-base-v2';
+import {
+  calculateDayPlanRoutes,
+  previewDayPlanRoute,
+  cancelDayPlanQueries
+} from './route-planner.js?v=20260622-map-base-v2';
+import { refreshPlanSummary } from './render/sidebar.js?v=20260901-s5b';
+import { reconcilePlan } from './day-plan.js';
+import { cancelDayPlanSessions } from './render/day-plan-modal.js';
 import { readSharedTripFromURL } from './share.js';
 import {
   getLastWorkspaceLoadInfo,
@@ -110,7 +119,7 @@ import {
 import { sleep } from './utils.js';
 import { inferIconId } from './render/icons.js';
 import { createLogger } from './logger.js';
-import { buildGuideDraft, searchGuidePlaces } from './guide-import-flow.js';
+import { buildGuideDraft } from './guide-import-flow.js';
 import { MAX_GUIDE_DAYS } from './guide-import-cleanup.js';
 
 const log = createLogger('main');
@@ -124,6 +133,7 @@ let mobileViewSwitchBound = false;
 let lastMapError = null;
 let persistenceUnavailable = false;
 let protectedWorkspaceNotice = '';
+let workspaceSavePromise = Promise.resolve({ ok: true });
 let persistenceSuspended = false;
 const locationResolutionRuns = new Map();
 
@@ -279,6 +289,8 @@ function getItineraryHandlers() {
       highlightSegment(segment.id);
     },
     onEditRoute: openRouteEditorFlow,
+    onAssessDay: openDayPlanFlow,
+    planHandlers: getDayPlanHandlers,
     onEditDay: openEditDayFlow,
     onEditEvent: openEditEventFlow,
     onAddLocation: dayId => openAddLocationFlow({ dayId }),
@@ -291,6 +303,62 @@ function getItineraryHandlers() {
     onAddDay: openCreateDayFlow,
     onCreateTrip: openCreateTripFlow,
     onImportGuide: openGuideImportFlow
+  };
+}
+
+function openDayPlanFlow(dayId) {
+  const day = getDay(dayId);
+  if (!day) return;
+  if (!day.plan) updateDayPlan(dayId, reconcilePlan(day));
+  selectDay(dayId, { planRoutes: true });
+  const settings = document.querySelector(
+    `.day-group[data-day-id="${CSS.escape(dayId)}"] .plan-settings`
+  );
+  settings.open = true;
+  settings.querySelector('[name=startLocation]').focus();
+}
+
+function getDayPlanHandlers(dayId) {
+  return {
+    getDay: () => getDay(dayId),
+    onSave: async next => {
+      updateDayPlan(dayId, next.plan, next.events);
+      return await workspaceSavePromise;
+    },
+    onRetrySave: persistWorkspace,
+    onExport: exportWorkspaceFlow,
+    onCalculate: () => calculateDayPlanRoutes(dayId),
+    onCompare: previewDayPlanRoute,
+    onMove: (id, direction) => moveEventInDay(dayId, id, direction),
+    onDelete: id =>
+      deleteEventFlow(
+        dayId,
+        getDay(dayId).events.find(event => event.id === id)
+      ),
+    onEdit: id =>
+      openEditEventFlow(
+        dayId,
+        getDay(dayId).events.find(event => event.id === id)
+      ),
+    onSearchEndpoint: () =>
+      openSearchModal({
+        insertionLabel: '添加到起讫地点候选',
+        onSearch: keyword =>
+          searchPlaces(getAppState().AMap, keyword, {
+            city: getTrip().city || false,
+            citylimit: false
+          }),
+        onConfirm: ({ place }) => {
+          addLocation({
+            name: place.name,
+            addr: place.addr,
+            lnglat: place.lnglat,
+            city: place.city
+          });
+          openDayPlanFlow(dayId);
+        }
+      }),
+    onCancel: cancelDayPlanQueries
   };
 }
 
@@ -400,6 +468,7 @@ function importGuideDraft(draft) {
   }
   batchTripChanges(() => {
     if (draft.city) updateTripMeta({ city: draft.city });
+    updateTripMeta({ guideSource: { text: draft.sourceText || '', importedAt: Date.now() } });
 
     const maxDay = Math.min(
       MAX_GUIDE_DAYS,
@@ -423,7 +492,8 @@ function importGuideDraft(draft) {
         province: poi?.province || '',
         city: poi?.city || '',
         district: poi?.district || '',
-        tag: poi?.tag || ''
+        tag: poi?.tag || '',
+        ...(event.keepUnmatched ? { keepUnmatched: true } : {})
       });
       const payload = {
         title: eventTitle,
@@ -436,7 +506,11 @@ function importGuideDraft(draft) {
         }),
         timeSlot: event.timeSlot,
         note: event.note || '',
-        locationId
+        locationId,
+        sourceFacts: event.sourceFacts,
+        ...(event.sourceFacts?.duration
+          ? { visit: { ...event.sourceFacts.duration, source: 'guide' } }
+          : {})
       };
 
       if (event.day == null) {
@@ -519,7 +593,10 @@ async function runNearbySearch({ userInput, anchorLocation, AMap }) {
     });
   } else {
     // 没锚点（当天为空）：退化为全城关键词搜索
-    candidates = await searchPlaces(AMap, userInput, { city: getTrip().city || false });
+    candidates = await searchPlaces(AMap, userInput, {
+      city: getTrip().city || false,
+      citylimit: false
+    });
   }
   return candidates.slice(0, NEARBY_MAX_RESULTS);
 }
@@ -574,7 +651,8 @@ function openAddLocationFlow(options = {}) {
     nearbyAnchor: anchorLocation
       ? { name: anchorLocation.name, radius: NEARBY_DEFAULT_RADIUS, maxResults: NEARBY_MAX_RESULTS }
       : null,
-    onSearch: keyword => searchPlaces(state.AMap, keyword, { city: getTrip().city || false }),
+    onSearch: keyword =>
+      searchPlaces(state.AMap, keyword, { city: getTrip().city || false, citylimit: false }),
     onNearbySearch: userInput =>
       runNearbySearch({
         userInput,
@@ -659,7 +737,12 @@ async function openGuideImportFlow(initial = {}) {
                 text: currentDraft.sourceText,
                 cityHint: currentDraft.cityHint
               }),
-            onSearchPlace: (keyword, city) => searchGuidePlaces(keyword, city || false, 8),
+            onSearchPlace: (keyword, city) =>
+              searchPlaces(getAppState().AMap, keyword, {
+                city: city || false,
+                citylimit: false,
+                pageSize: 8
+              }),
             onConfirm: importGuideDraft
           }
         });
@@ -687,7 +770,8 @@ function openEditEventFlow(dayId, event) {
     handlers: {
       currentContainerId: dayId,
       containerOptions: getEventContainerOptions(),
-      onSearch: keyword => searchPlaces(state.AMap, keyword, { city: getTrip().city || false }),
+      onSearch: keyword =>
+        searchPlaces(state.AMap, keyword, { city: getTrip().city || false, citylimit: false }),
       nearbyAnchor: loc?.lnglat
         ? { name: loc.name, radius: NEARBY_DEFAULT_RADIUS, maxResults: NEARBY_MAX_RESULTS }
         : null,
@@ -776,6 +860,10 @@ function getEventContainerOptions() {
 }
 
 function openRouteEditorFlow(segment) {
+  if (segment.planLeg) {
+    openDayPlanFlow(segment.dayId);
+    return;
+  }
   openRouteEditorModal({
     segment,
     handlers: {
@@ -791,7 +879,12 @@ function openRouteEditorFlow(segment) {
 function countLocationReferences(locationId) {
   const trip = getTrip();
   const dayCount = trip.days.reduce((count, day) => {
-    return count + day.events.filter(event => event.locationId === locationId).length;
+    return (
+      count +
+      day.events.filter(event => event.locationId === locationId).length +
+      Number(day.plan?.start?.locationId === locationId) +
+      Number(day.plan?.end?.locationId === locationId)
+    );
   }, 0);
   const unscheduledCount = (trip.unscheduled || []).filter(
     event => event.locationId === locationId
@@ -936,12 +1029,17 @@ function handleWorkspaceChanged() {
 
 function handleTripChanged(payload) {
   if (!payload) return;
+  if (payload.kind === 'day:removed') cancelDayPlanSessions();
   const preservedScrollTop =
     payload.kind === 'location:updated'
       ? document.getElementById('itinerary-container')?.scrollTop
       : null;
-  persistWorkspace();
+  if (payload.phase !== 'pending') workspaceSavePromise = persistWorkspace();
   if (payload.kind === 'route:geometry-cached') return;
+  if (payload.kind === 'day:plan-calculated') {
+    refreshPlanSummary(getDay(payload.dayId));
+    return;
+  }
   renderWorkspace();
 
   if (payload.kind === 'trip:updated') {
@@ -987,6 +1085,7 @@ function handleTripChanged(payload) {
 }
 
 function handleTripReplaced() {
+  cancelDayPlanSessions();
   closeWorkspaceMenu();
   clearSelectedTarget();
   persistWorkspace();
@@ -1096,7 +1195,7 @@ async function resolveAllLocations() {
   try {
     for (const [locationId, loc] of entries) {
       if (locationResolutionRuns.get(tripId) !== runToken) return;
-      if (loc?.resolved === true || hasValidLngLat(loc?.lnglat)) {
+      if (loc?.keepUnmatched || loc?.resolved === true || hasValidLngLat(loc?.lnglat)) {
         skipped += 1;
         continue;
       }
@@ -1156,7 +1255,8 @@ function getLocationResolutionVersion(location) {
     includeKeywords: location?.includeKeywords || [],
     resolveBy: location?.resolveBy || '',
     lnglat: location?.lnglat || null,
-    resolved: location?.resolved === true
+    resolved: location?.resolved === true,
+    keepUnmatched: location?.keepUnmatched === true
   });
 }
 
@@ -1175,6 +1275,9 @@ function getReferencedLocationIds() {
   const trip = getTrip();
   const ids = new Set();
   trip.days.forEach(day => {
+    for (const node of [day.plan?.start, day.plan?.end]) {
+      if (node?.locationId && trip.locations[node.locationId]) ids.add(node.locationId);
+    }
     day.events.forEach(event => {
       if (event.locationId && trip.locations[event.locationId]) ids.add(event.locationId);
     });
