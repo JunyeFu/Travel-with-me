@@ -1,6 +1,6 @@
 # Travel With Me Commercialization Strategy
 
-> **辅助文件** | 权威开发文档: [DEVELOPMENT.md](../../DEVELOPMENT.md)
+> **历史商业化设想，非当前能力或活动任务。** 下文保留旧阶段判断与市场假设，未作当前竞品复核。2026-10-02 产品为 2D-only，JSON 导入导出、恢复与删除已实现，3D 已封存；账号、云同步和收费未交付。当前边界见 [产品总纲](architecture-blueprint.md)，不得按下文恢复 3D 或判定发布完成。
 
 本文档记录 Travel With Me 从验证产品价值走向商业化所需的能力、方案取舍和阶段路线。产品阶段与数据架构以 `docs/product/architecture-blueprint.md` 为准；3D 商业化前置条件以 `docs/architecture/3d/deep-research-integration.md` 和 `docs/architecture/3d/top-down-execution-roadmap.md` 为准。
 

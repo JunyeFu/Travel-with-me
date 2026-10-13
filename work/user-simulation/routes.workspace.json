@@ -1,0 +1,346 @@
+{
+  "format": "travel-with-me.workspace",
+  "formatVersion": 1,
+  "schemaVersion": 5,
+  "exportedAt": "2026-09-28T00:00:00.000Z",
+  "workspace": {
+    "trips": [
+      {
+        "id": "sample-hangzhou",
+        "title": "杭州｜两天慢慢走",
+        "subtitle": "西湖散步 × 江南烟火 · 模拟用户样本",
+        "city": "杭州",
+        "locations": {
+          "hangzhou-loc-1-1": {
+            "name": "断桥残雪",
+            "query": "杭州断桥残雪",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "杭州"
+          },
+          "hangzhou-loc-1-2": {
+            "name": "白堤",
+            "query": "杭州白堤",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "杭州"
+          },
+          "hangzhou-loc-1-3": {
+            "name": "平湖秋月",
+            "query": "杭州平湖秋月",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "杭州"
+          },
+          "hangzhou-loc-1-4": {
+            "name": "湖滨步行街",
+            "query": "杭州湖滨步行街",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "杭州"
+          },
+          "hangzhou-loc-2-1": {
+            "name": "灵隐寺",
+            "query": "杭州灵隐寺",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "杭州"
+          },
+          "hangzhou-loc-2-2": {
+            "name": "龙井村",
+            "query": "杭州龙井村",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "杭州"
+          },
+          "hangzhou-loc-2-3": {
+            "name": "河坊街",
+            "query": "杭州河坊街",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "杭州"
+          }
+        },
+        "days": [
+          {
+            "id": "hangzhou-day-1",
+            "title": "西湖散步",
+            "events": [
+              {
+                "id": "hangzhou-event-1-1",
+                "title": "断桥残雪",
+                "icon": "place",
+                "timeSlot": "morning",
+                "note": "从断桥出发，沿湖慢慢走。",
+                "locationId": "hangzhou-loc-1-1"
+              },
+              {
+                "id": "hangzhou-event-1-2",
+                "title": "白堤",
+                "icon": "place",
+                "timeSlot": "morning",
+                "note": "不赶路，留时间拍照和休息。",
+                "locationId": "hangzhou-loc-1-2"
+              },
+              {
+                "id": "hangzhou-event-1-3",
+                "title": "平湖秋月",
+                "icon": "place",
+                "timeSlot": "afternoon",
+                "note": "沿湖看风景。",
+                "locationId": "hangzhou-loc-1-3"
+              },
+              {
+                "id": "hangzhou-event-1-4",
+                "title": "湖滨步行街",
+                "icon": "place",
+                "timeSlot": "evening",
+                "note": "晚饭自选，结束后回住处。",
+                "locationId": "hangzhou-loc-1-4"
+              }
+            ]
+          },
+          {
+            "id": "hangzhou-day-2",
+            "title": "茶山与老街",
+            "events": [
+              {
+                "id": "hangzhou-event-2-1",
+                "title": "灵隐寺",
+                "icon": "place",
+                "timeSlot": "morning",
+                "note": "出发前核对开放与预约要求。",
+                "locationId": "hangzhou-loc-2-1"
+              },
+              {
+                "id": "hangzhou-event-2-2",
+                "title": "龙井村",
+                "icon": "place",
+                "timeSlot": "afternoon",
+                "note": "交通与茶山步行分别安排，不默认全程步行。",
+                "locationId": "hangzhou-loc-2-2"
+              },
+              {
+                "id": "hangzhou-event-2-3",
+                "title": "河坊街",
+                "icon": "place",
+                "timeSlot": "evening",
+                "note": "逛街收尾，按体力调整。",
+                "locationId": "hangzhou-loc-2-3"
+              }
+            ]
+          }
+        ],
+        "unscheduled": []
+      },
+      {
+        "id": "sample-chengdu",
+        "title": "成都｜两天吃逛不赶路",
+        "subtitle": "茶馆慢坐 × 街巷漫游 · 模拟用户样本",
+        "city": "成都",
+        "locations": {
+          "chengdu-loc-1-1": {
+            "name": "人民公园",
+            "query": "成都人民公园",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "成都"
+          },
+          "chengdu-loc-1-2": {
+            "name": "宽窄巷子",
+            "query": "成都宽窄巷子",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "成都"
+          },
+          "chengdu-loc-1-3": {
+            "name": "奎星楼街",
+            "query": "成都奎星楼街",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "成都"
+          },
+          "chengdu-loc-2-1": {
+            "name": "武侯祠",
+            "query": "成都武侯祠",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "成都"
+          },
+          "chengdu-loc-2-2": {
+            "name": "锦里",
+            "query": "成都锦里",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "成都"
+          },
+          "chengdu-loc-2-3": {
+            "name": "玉林路",
+            "query": "成都玉林路",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "成都"
+          }
+        },
+        "days": [
+          {
+            "id": "chengdu-day-1",
+            "title": "喝茶与街巷",
+            "events": [
+              {
+                "id": "chengdu-event-1-1",
+                "title": "人民公园",
+                "icon": "place",
+                "timeSlot": "morning",
+                "note": "喝杯茶，慢坐一会儿。",
+                "locationId": "chengdu-loc-1-1"
+              },
+              {
+                "id": "chengdu-event-1-2",
+                "title": "宽窄巷子",
+                "icon": "place",
+                "timeSlot": "afternoon",
+                "note": "逛街拍照，餐厅现场自选。",
+                "locationId": "chengdu-loc-1-2"
+              },
+              {
+                "id": "chengdu-event-1-3",
+                "title": "奎星楼街",
+                "icon": "place",
+                "timeSlot": "evening",
+                "note": "美食街巷，不虚构店铺或消费。",
+                "locationId": "chengdu-loc-1-3"
+              }
+            ]
+          },
+          {
+            "id": "chengdu-day-2",
+            "title": "文化与生活",
+            "events": [
+              {
+                "id": "chengdu-event-2-1",
+                "title": "武侯祠",
+                "icon": "place",
+                "timeSlot": "morning",
+                "note": "核对门票与开放安排。",
+                "locationId": "chengdu-loc-2-1"
+              },
+              {
+                "id": "chengdu-event-2-2",
+                "title": "锦里",
+                "icon": "place",
+                "timeSlot": "afternoon",
+                "note": "游逛后休息。",
+                "locationId": "chengdu-loc-2-2"
+              },
+              {
+                "id": "chengdu-event-2-3",
+                "title": "玉林路",
+                "icon": "place",
+                "timeSlot": "evening",
+                "note": "感受生活街区，交通另行选择。",
+                "locationId": "chengdu-loc-2-3"
+              }
+            ]
+          }
+        ],
+        "unscheduled": []
+      },
+      {
+        "id": "sample-suzhou",
+        "title": "苏州｜一天江南散步",
+        "subtitle": "园林窗景 × 河畔小巷 · 模拟用户样本",
+        "city": "苏州",
+        "locations": {
+          "suzhou-loc-1-1": {
+            "name": "拙政园",
+            "query": "苏州拙政园",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "苏州"
+          },
+          "suzhou-loc-1-2": {
+            "name": "苏州博物馆",
+            "query": "苏州苏州博物馆",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "苏州"
+          },
+          "suzhou-loc-1-3": {
+            "name": "平江路",
+            "query": "苏州平江路",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "苏州"
+          },
+          "suzhou-loc-1-4": {
+            "name": "山塘街",
+            "query": "苏州山塘街",
+            "addr": "",
+            "lnglat": null,
+            "resolved": false,
+            "city": "苏州"
+          }
+        },
+        "days": [
+          {
+            "id": "suzhou-day-1",
+            "title": "园林与河畔",
+            "events": [
+              {
+                "id": "suzhou-event-1-1",
+                "title": "拙政园",
+                "icon": "place",
+                "timeSlot": "morning",
+                "note": "先核对预约，园林慢逛。",
+                "locationId": "suzhou-loc-1-1"
+              },
+              {
+                "id": "suzhou-event-1-2",
+                "title": "苏州博物馆",
+                "icon": "place",
+                "timeSlot": "morning",
+                "note": "先核对预约；与园林同半天仅为草稿，可按时段调整。",
+                "locationId": "suzhou-loc-1-2"
+              },
+              {
+                "id": "suzhou-event-1-3",
+                "title": "平江路",
+                "icon": "place",
+                "timeSlot": "afternoon",
+                "note": "沿河散步，中途休息。",
+                "locationId": "suzhou-loc-1-3"
+              },
+              {
+                "id": "suzhou-event-1-4",
+                "title": "山塘街",
+                "icon": "place",
+                "timeSlot": "evening",
+                "note": "夜景收尾，跨街区交通另行选择。",
+                "locationId": "suzhou-loc-1-4"
+              }
+            ]
+          }
+        ],
+        "unscheduled": []
+      }
+    ],
+    "activeTripId": "sample-hangzhou"
+  }
+}

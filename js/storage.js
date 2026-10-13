@@ -2,7 +2,7 @@
 // 持久化封装：localStorage 优先，失败时降级到内存
 //
 // workspace 结构：
-//   { version: 5, savedAt, workspace: { trips: [...], activeTripId } }
+//   { version: 6, savedAt, workspace: { trips: [...], activeTripId } }
 //
 // V5 schema 升级：version 2 -> 3
 //   - days[].date 字段删除
@@ -57,18 +57,23 @@ function safeRemove(key) {
 const WORKSPACE_KEY = 'workspace';
 const RECOVERY_PREFIX = 'workspace-recovery:';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 export const EXPORT_FORMAT = 'travel-with-me.workspace';
 export const EXPORT_FORMAT_VERSION = 1;
 
 let lastWorkspaceLoadInfo = { status: 'empty' };
+const omitPendingQuery = (key, value) =>
+  key === 'queryState' && value === 'pending' ? null : value;
 
 export async function saveWorkspace(workspace) {
-  const json = JSON.stringify({
-    version: SCHEMA_VERSION,
-    savedAt: Date.now(),
-    workspace
-  });
+  const json = JSON.stringify(
+    {
+      version: SCHEMA_VERSION,
+      savedAt: Date.now(),
+      workspace
+    },
+    omitPendingQuery
+  );
   const durable = safeSet(WORKSPACE_KEY, json);
   return durable
     ? { ok: true }
@@ -91,6 +96,14 @@ export async function loadWorkspace() {
   try {
     const parsed = JSON.parse(raw);
     const version = Number(parsed.version || 0);
+    if (version > SCHEMA_VERSION) {
+      lastWorkspaceLoadInfo = {
+        status: 'future-version',
+        shouldPersist: false,
+        message: '工作区版本较新，请使用对应版本打开。'
+      };
+      return null;
+    }
     const loadedWorkspace = parsed.workspace ?? null;
     const validation = validateWorkspaceShape(loadedWorkspace);
     if (!validation.ok) {
@@ -178,7 +191,7 @@ export function buildWorkspaceExport(workspace) {
 }
 
 export function stringifyWorkspaceExport(workspace) {
-  return `${JSON.stringify(buildWorkspaceExport(workspace), null, 2)}\n`;
+  return `${JSON.stringify(buildWorkspaceExport(workspace), omitPendingQuery, 2)}\n`;
 }
 
 export function parseWorkspaceImport(input) {
@@ -189,6 +202,13 @@ export function parseWorkspaceImport(input) {
     return { ok: false, error: 'INVALID_JSON', message: '导入文件不是合法 JSON。' };
   }
 
+  if (Number(parsed?.schemaVersion || parsed?.version || 0) > SCHEMA_VERSION) {
+    return {
+      ok: false,
+      error: 'FUTURE_SCHEMA',
+      message: '该文件来自较新的版本，不能覆盖当前工作区。'
+    };
+  }
   const workspace = extractImportedWorkspace(parsed);
   if (!workspace) {
     return {
@@ -360,10 +380,35 @@ function validateWorkspaceShape(workspace) {
         };
       }
       if (dayId) dayIds.add(dayId);
+      if (day.plan != null && !validImportedPlan(day.plan)) {
+        return { ok: false, error: 'INVALID_DAY_PLAN', message: '每日评估设置或路段格式不正确。' };
+      }
       if ((day.events || []).some(event => !event || typeof event !== 'object')) {
         return { ok: false, error: 'INVALID_EVENT', message: '每个日程必须是对象。' };
       }
       for (const event of day.events || []) {
+        if (
+          (event.visit != null &&
+            (typeof event.visit !== 'object' ||
+              Array.isArray(event.visit) ||
+              (event.visit.min != null &&
+                (!Number.isFinite(event.visit.min) || event.visit.min < 0)) ||
+              (event.visit.max != null &&
+                (!Number.isFinite(event.visit.max) || event.visit.max < 0)) ||
+              (event.visit.min != null &&
+                event.visit.max != null &&
+                event.visit.max < event.visit.min))) ||
+          (event.fixedStart != null &&
+            (!Number.isFinite(event.fixedStart) ||
+              event.fixedStart < 0 ||
+              event.fixedStart >= 2880))
+        ) {
+          return {
+            ok: false,
+            error: 'INVALID_EVENT_TIME',
+            message: '活动停留区间或固定时间不正确。'
+          };
+        }
         const eventId = String(event.id || '');
         if (eventId && eventIds.has(eventId)) {
           return {
@@ -398,4 +443,44 @@ function validateWorkspaceShape(workspace) {
     }
   }
   return { ok: true };
+}
+
+function validImportedPlan(plan) {
+  const object = value => value && typeof value === 'object' && !Array.isArray(value);
+  const node = value =>
+    object(value) &&
+    (value.locationId == null || typeof value.locationId === 'string') &&
+    (value.minute == null ||
+      (Number.isInteger(value.minute) && value.minute >= 0 && value.minute < 2880));
+  if (!object(plan) || !node(plan.start) || !node(plan.end) || !Array.isArray(plan.legs))
+    return false;
+  if (
+    plan.travelDate != null &&
+    (typeof plan.travelDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(plan.travelDate))
+  )
+    return false;
+  return plan.legs.every(
+    leg =>
+      object(leg) &&
+      typeof leg.from === 'string' &&
+      typeof leg.to === 'string' &&
+      (leg.mode == null || ['walking', 'riding', 'driving', 'transit'].includes(leg.mode)) &&
+      [leg.estimate, leg.previousEstimate].every(
+        estimate =>
+          estimate == null ||
+          (object(estimate) &&
+            (estimate.status !== 'real' ||
+              (Number.isFinite(estimate.seconds) &&
+                estimate.seconds >= 0 &&
+                Array.isArray(estimate.paths) &&
+                estimate.paths.every(
+                  path =>
+                    Array.isArray(path) &&
+                    path.every(
+                      point =>
+                        Array.isArray(point) && point.length === 2 && point.every(Number.isFinite)
+                    )
+                ))))
+      )
+  );
 }

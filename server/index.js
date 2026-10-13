@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import { basicAuth } from 'hono/basic-auth';
 import { secureHeaders } from 'hono/secure-headers';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
@@ -25,6 +26,7 @@ import {
   projectPathFromRequestURL
 } from '../scripts/active-2d-runtime.mjs';
 import { initDB } from './rag/db.js';
+import { normalizeGuideTimeFacts } from './guide-time.js';
 import { saveGuide, listGuides, softDeleteGuide, getActiveGuideCount } from './rag/store.js';
 import { BM25Index } from './rag/bm25.js';
 import { retrieveGuides, formatRetrievedContext } from './rag/retrieve.js';
@@ -71,6 +73,16 @@ const AMAP_RATE_WINDOW_MS = readPositiveInt(process.env.AMAP_RATE_WINDOW_MS, 60 
 const TILE_RATE_LIMIT = readPositiveInt(process.env.TILE_RATE_LIMIT, 1200);
 const TILE_RATE_WINDOW_MS = readPositiveInt(process.env.TILE_RATE_WINDOW_MS, 60 * 1000);
 const RAG_ENABLED = process.env.RAG_ENABLED !== 'false';
+const RAG_SAVE_IMPORTED_GUIDES = process.env.RAG_SAVE_IMPORTED_GUIDES !== 'false';
+const DEMO_MODE = process.env.DEMO_MODE === 'true';
+const DEMO_USERNAME = process.env.DEMO_USERNAME;
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD;
+if (DEMO_MODE && (!DEMO_USERNAME || !DEMO_PASSWORD)) {
+  throw new Error('DEMO_MODE requires DEMO_USERNAME and DEMO_PASSWORD.');
+}
+if (DEMO_MODE && RAG_ENABLED) {
+  throw new Error('Public demo requires RAG_ENABLED=false (visitor guides must not be stored).');
+}
 const RAG_DB_PATH = process.env.RAG_DB_PATH || resolve(PROJECT_ROOT, 'data', 'rag.db');
 const RAG_TOP_K = readPositiveInt(process.env.RAG_TOP_K, 3);
 const RAG_MAX_CONTEXT_CHARS = readPositiveInt(process.env.RAG_MAX_CONTEXT_CHARS, 1500);
@@ -105,6 +117,10 @@ function isRagReady() {
   return bm25Index !== null && bm25Index.docCount >= RAG_MIN_DOCS;
 }
 
+export function rebuildRagIndex() {
+  bm25Index?.rebuildFromDB();
+}
+
 const app = new Hono();
 
 app.get('/healthz', c =>
@@ -116,7 +132,8 @@ app.get('/healthz', c =>
 );
 
 app.get('/readyz', c => {
-  const ready = Boolean(AMAP_JS_KEY && AMAP_WEB_SERVICE_KEY && JSCODE);
+  const aiReady = Boolean(DEEPSEEK_KEY && GUIDE_PROMPT_TEMPLATE);
+  const ready = Boolean(AMAP_JS_KEY && AMAP_WEB_SERVICE_KEY && JSCODE && (!DEMO_MODE || aiReady));
   return c.json(
     {
       status: ready ? 'ready' : 'degraded',
@@ -124,13 +141,18 @@ app.get('/readyz', c => {
         amapJsSecurity: Boolean(JSCODE),
         amapJsKey: Boolean(AMAP_JS_KEY),
         amapWebService: Boolean(AMAP_WEB_SERVICE_KEY),
-        aiGuideImport: Boolean(DEEPSEEK_KEY && GUIDE_PROMPT_TEMPLATE),
+        aiGuideImport: aiReady,
         rag: Boolean(bm25Index)
       }
     },
     ready ? 200 : 503
   );
 });
+
+if (DEMO_MODE) {
+  // Health endpoints above are deliberately public. Everything registered below is protected.
+  app.use('*', basicAuth({ username: DEMO_USERNAME, password: DEMO_PASSWORD }));
+}
 
 app.get('/_config', c =>
   c.json({
@@ -149,6 +171,7 @@ app.use(
         "'unsafe-inline'", // 高德 JS SDK 内部会触发 javascript: URL/内联回调；缺失时部分浏览器白屏。
         'https://cdn.jsdelivr.net',
         'https://webapi.amap.com',
+        'https://mapplugin.amap.com',
         'https://jsapi.amap.com'
       ],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
@@ -156,6 +179,7 @@ app.use(
       imgSrc: ["'self'", 'data:', 'https:', 'blob:'],
       connectSrc: [
         "'self'",
+        'https://webapi.amap.com',
         'https://restapi.amap.com',
         'https://jsapi.amap.com',
         'https://jsapi-data1.amap.com',
@@ -216,6 +240,10 @@ app.use(
 app.post(`${AI_PREFIX}/extract-guide`, async c => {
   const sourceRejected = rejectUntrustedSource(c);
   if (sourceRejected) return sourceRejected;
+  if (DEMO_MODE) {
+    const globalLimited = enforceRateLimit(c, 'ai-demo-global', 12, 60 * 60 * 1000, true, 'global');
+    if (globalLimited) return globalLimited;
+  }
   const limited = enforceRateLimit(c, 'ai', AI_RATE_LIMIT, AI_RATE_WINDOW_MS);
   if (limited) return limited;
   const tooLargeByHeader = rejectLargeBodyByHeader(c, MAX_AI_BODY_BYTES);
@@ -289,7 +317,7 @@ app.post(`${AI_PREFIX}/extract-guide`, async c => {
       const parsed = parseGuideJSON(content);
       if (parsed) {
         const normalized = normalizeExtractedGuide(parsed);
-        if (bm25Index) {
+        if (bm25Index && RAG_SAVE_IMPORTED_GUIDES) {
           const tokens = tokenize(text);
           const guideId = saveGuide({
             city: normalized.city || cityHint || null,
@@ -402,6 +430,7 @@ app.get(`${RAG_PREFIX}/guides`, c => {
 app.delete(`${RAG_PREFIX}/guides/:id`, c => {
   const sourceRejected = rejectUntrustedSource(c);
   if (sourceRejected) return sourceRejected;
+  if (!bm25Index) return c.json({ error: 'RAG_UNAVAILABLE', message: 'RAG 检索功能未启用。' }, 503);
   const id = c.req.param('id');
   if (!softDeleteGuide(id)) {
     return c.json({ error: 'NOT_FOUND', message: '文档不存在。' }, 404);
@@ -566,16 +595,22 @@ app.get(TILE_PREFIX, async c => {
 
 // ─── 静态文件托管 ─────────────────────────────────────────
 // 只暴露 2D HTML 入口解析得到、且显式清单批准的运行时文件。
-app.get('/', serveStatic({ path: './index.html' }));
-app.get('/index.html', serveStatic({ path: './index.html' }));
+const revalidateStaticFile = (c, next) => {
+  c.header('cache-control', 'no-cache');
+  return next();
+};
+app.get('/', revalidateStaticFile, serveStatic({ path: './index.html' }));
+app.get('/index.html', revalidateStaticFile, serveStatic({ path: './index.html' }));
 const serveActive2DStylesheet = serveStatic({ root: './' });
 app.use('/css/*', (c, next) => {
+  c.header('cache-control', 'no-cache');
   const projectPath = projectPathFromRequestURL(c.req.url, 'css');
   if (!ACTIVE_2D_STYLESHEET_PATHS.has(projectPath)) return c.notFound();
   return serveActive2DStylesheet(c, next);
 });
 const serveActive2DJavaScript = serveStatic({ root: './' });
 app.use('/js/*', (c, next) => {
+  c.header('cache-control', 'no-cache');
   const projectPath = projectPathFromRequestURL(c.req.url);
   if (!ACTIVE_2D_JAVASCRIPT_PATHS.has(projectPath)) return c.notFound();
   return serveActive2DJavaScript(c, next);
@@ -742,11 +777,11 @@ function rejectLargeBodyByHeader(c, maxBytes) {
   return c.json({ error: 'REQUEST_TOO_LARGE', message: '请求体过大，请缩短攻略文本后重试。' }, 413);
 }
 
-function enforceRateLimit(c, name, limit, windowMs, asJson = true) {
+function enforceRateLimit(c, name, limit, windowMs, asJson = true, client = getClientIP(c)) {
   const now = Date.now();
   if (rateBuckets.size > 10000) pruneRateBuckets(now);
 
-  const key = `${name}:${getClientIP(c)}`;
+  const key = `${name}:${client}`;
   const existing = rateBuckets.get(key);
   const bucket =
     existing && existing.resetAt > now ? existing : { count: 0, resetAt: now + windowMs };
@@ -865,7 +900,8 @@ function normalizeExtractedGuide(input = {}) {
     title_suggestion: String(input.title_suggestion || '').trim(),
     events: Array.isArray(input.events)
       ? input.events
-          .map(event => ({
+          .map((event, index) => ({
+            time_facts: normalizeGuideTimeFacts(event || {}, index),
             place_name: String(event?.place_name || '').trim(),
             day: Number.isInteger(event?.day) && event.day > 0 ? event.day : null,
             time_slot: timeSlots.has(event?.time_slot) ? event.time_slot : null,

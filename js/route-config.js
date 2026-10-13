@@ -48,7 +48,6 @@ export function normalizeRouteGeometry(geometry) {
             : []
         )
         .filter(path => path.length >= 2)
-        .slice(0, 8)
     : [];
   if (!paths.length) return null;
   const normalized = {

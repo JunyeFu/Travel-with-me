@@ -16,23 +16,24 @@ export const openGuideImportModal = modalSingleton(
         <button type="button" class="modal-close" aria-label="关闭">&times;</button>
       </div>
       <form class="modal-body guide-import-body">
+        <p class="guide-import-help" id="guide-import-instructions">粘贴攻略文字，提取后进入可编辑预览。暂不支持直接上传图片，可先从图片复制文字。</p>
         <div class="guide-import-field">
-          <label>城市</label>
-          <input type="text" class="guide-import-city" placeholder="AI 自动识别，也可以手动填写城市" value="${escapeHTML(
+          <label for="guide-import-city">城市</label>
+          <input id="guide-import-city" type="text" class="guide-import-city" placeholder="AI 自动识别，也可以手动填写城市" value="${escapeHTML(
             initialCity
           )}" />
         </div>
         <div class="guide-import-field">
-          <label>攻略文字</label>
-          <textarea class="guide-import-textarea" placeholder="粘贴小红书 / 公众号 / 马蜂窝等中文旅行攻略文字">${escapeHTML(
+          <label for="guide-import-text">攻略文字</label>
+          <textarea id="guide-import-text" aria-describedby="guide-import-instructions guide-import-length" class="guide-import-textarea" placeholder="粘贴小红书 / 公众号 / 马蜂窝等中文旅行攻略文字">${escapeHTML(
             initialText
           )}</textarea>
           <div class="guide-import-meta">
-            <span class="guide-import-help">至少 50 字，最多 5000 字</span>
+            <span class="guide-import-help" id="guide-import-length">至少 50 字，最多 5000 字</span>
             <span class="guide-import-count">0 / ${MAX_TEXT_LENGTH}</span>
           </div>
         </div>
-        <div class="guide-import-error" hidden></div>
+        <div class="guide-import-error" role="alert" hidden></div>
         <div class="guide-import-progress" data-step="idle" hidden>${renderProgressSteps()}</div>
         <div class="modal-actions">
           <button type="button" class="modal-cancel">取消</button>
@@ -78,8 +79,10 @@ export const openGuideImportModal = modalSingleton(
       const len = textarea.value.trim().length;
       countEl.textContent = `${len} / ${MAX_TEXT_LENGTH}`;
       submitBtn.disabled = !isValid(textarea.value.trim());
-      if (len > MAX_TEXT_LENGTH) setError('文字过长，请分段处理。');
-      else if (errorEl.dataset.kind === 'validate') setError('');
+      if (len > MAX_TEXT_LENGTH) {
+        errorEl.dataset.kind = 'validate';
+        setError('文字过长，请分段处理。');
+      } else if (errorEl.dataset.kind === 'validate') setError('');
     };
     textarea.addEventListener('input', sync);
     sync();
@@ -114,6 +117,7 @@ export const openGuideImportModal = modalSingleton(
         });
         if (ok !== false) openGuideImportModal.close();
       } catch (err) {
+        errorEl.dataset.kind = 'request';
         setError(err?.message || '导入失败，请重试。');
         setProgressStep('idle');
       } finally {

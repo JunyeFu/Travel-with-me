@@ -34,11 +34,11 @@ Files under `architecture/3d/` and `engineering/qa/` describe the frozen 3D impl
 
 ## Operations
 
-| Document                                                 | Owner scope                                                 |
-| -------------------------------------------------------- | ----------------------------------------------------------- |
-| [Release playbook](operations/release-playbook.md)       | release checks, smoke validation, rollback and monitoring   |
-| [Quality gate status](operations/quality-gate-status.md) | current quality gate verification ledger and remaining gaps |
-| [Changelog](../CHANGELOG.md)                             | released version notes                                      |
+| Document                                                 | Owner scope                                                |
+| -------------------------------------------------------- | ---------------------------------------------------------- |
+| [Release playbook](operations/release-playbook.md)       | release checks, smoke validation, rollback and monitoring  |
+| [Quality gate status](operations/quality-gate-status.md) | historical 2026-07-17 ledger, not current release evidence |
+| [Changelog](../CHANGELOG.md)                             | released version notes                                     |
 
 ## Design
 

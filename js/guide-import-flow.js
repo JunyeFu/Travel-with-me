@@ -5,7 +5,6 @@
 import { searchPlaces, searchNearBy } from './api/geocode.js';
 import { loadAMap } from './api/amap-loader.js';
 import { getAppState, setAMap } from './state.js';
-import { sleep } from './utils.js';
 import { setStatus } from './render/sidebar.js';
 import { cleanGuideExtractedEvents } from './guide-import-cleanup.js';
 import { createLogger } from './logger.js';
@@ -32,15 +31,12 @@ export async function buildGuideDraft(extracted, source, onProgress, signal) {
     );
   }
   const total = eventsToMatch.length;
-  // matching step 开始前先 yield 一帧让 UI 切换到"匹配地点"，避免 LLM 阶段一过就立刻冲到下一步
   onProgress?.('matching', total ? `准备匹配 ${total} 个地点...` : '正在整理...');
-  await sleep(220);
   signal?.throwIfAborted?.();
 
   for (let index = 0; index < total; index += 1) {
     signal?.throwIfAborted?.();
     const item = eventsToMatch[index];
-    // detail 文本带上具体地点名——给用户视觉强信号，避免 step 切换被 1 秒一闪而过
     onProgress?.('matching', `正在匹配 ${item.place_name || '地点'} (${index + 1}/${total})`);
     setStatus(`正在匹配高德地点：${index + 1}/${total}（${item.place_name || ''}）`);
 
@@ -65,15 +61,14 @@ export async function buildGuideDraft(extracted, source, onProgress, signal) {
       timeSlot: item.time_slot || '',
       note: item.note || '',
       sourceQuote: item.source_quote || '',
+      sourceFacts: item.time_facts || null,
       poi,
       matched: Boolean(poi),
       deleted: false
     });
-    await sleep(80);
   }
 
   onProgress?.('previewing', '正在整理导入预览...');
-  await sleep(180); // 让 "整理预览" 状态可见
   signal?.throwIfAborted?.();
   return {
     title: extracted.title_suggestion || `${city || 'AI'}旅行路线`,
@@ -115,21 +110,26 @@ export function withTimeout(promise, ms, fallback, label = '异步任务') {
 }
 
 export function normalizeGuideEventsFromSource(events, sourceText, warnings) {
-  const routePlan = extractMainRoutePlan(sourceText);
+  const routePlan = extractMainRoutePlan(sourceText, warnings);
   if (!routePlan.length) return events;
 
   const extractedByName = new Map();
   for (const item of events || []) {
     const key = normalizeGuidePlaceName(item?.place_name || '');
-    if (key && !extractedByName.has(key)) extractedByName.set(key, item);
+    if (key) {
+      if (!extractedByName.has(key)) extractedByName.set(key, []);
+      extractedByName.get(key).push(item);
+    }
   }
 
-  const normalized = routePlan.map(routeItem => {
+  const normalized = routePlan.map((routeItem, index) => {
     const key = normalizeGuidePlaceName(routeItem.name);
-    const existing = extractedByName.get(key);
+    const existing = extractedByName.get(key)?.shift();
     const note = compactGuideNote([routeItem.note, existing?.note].filter(Boolean).join('；'));
     return {
       ...existing,
+      source_sequence: index,
+      time_facts: { ...existing?.time_facts, order: index },
       place_name: routeItem.name,
       day: routeItem.day,
       time_slot: existing?.time_slot ?? null,
@@ -144,7 +144,7 @@ export function normalizeGuideEventsFromSource(events, sourceText, warnings) {
   return normalized.length ? normalized : events;
 }
 
-function extractMainRoutePlan(sourceText) {
+function extractMainRoutePlan(sourceText, warnings) {
   const text = String(sourceText || '');
   const lines = text
     .split(/\r?\n/g)
@@ -152,6 +152,7 @@ function extractMainRoutePlan(sourceText) {
     .filter(Boolean);
   const routeItems = [];
   const noteByPlace = new Map();
+  const routeOrders = [];
   let currentDay = null;
   let routeLineCount = 0;
 
@@ -168,7 +169,31 @@ function extractMainRoutePlan(sourceText) {
         .map(cleanRoutePlaceName)
         .filter(Boolean);
 
-      for (const point of points) {
+      const names = points.map(normalizeGuidePlaceName);
+      for (const previous of routeOrders.filter(route => route.day === day)) {
+        // Repeated visits are intentional; only compare places occurring once in each route.
+        const shared = names.filter(
+          (name, i) =>
+            names.indexOf(name) === i &&
+            names.lastIndexOf(name) === i &&
+            previous.names.includes(name) &&
+            previous.names.indexOf(name) === previous.names.lastIndexOf(name)
+        );
+        if (
+          shared.length > 1 &&
+          previous.names.filter(name => shared.includes(name)).join('\n') !== shared.join('\n')
+        ) {
+          warnings?.push(
+            `Day ${day} 原文顺序冲突：${previous.line} / ${line}。预览保留提取结果供核对，请确认采用顺序后导入。`
+          );
+          return [];
+        }
+      }
+      routeOrders.push({ day, names, line });
+
+      const last = routeItems.at(-1);
+      const continued = last?.day === day && normalizeGuidePlaceName(last.name) === names[0];
+      for (const point of continued ? points.slice(1) : points) {
         routeItems.push({
           name: point,
           day,
@@ -185,12 +210,8 @@ function extractMainRoutePlan(sourceText) {
     }
   }
 
-  const seen = new Set();
   const result = [];
   for (const item of routeItems) {
-    const key = `${item.day}:${normalizeGuidePlaceName(item.name)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
     const note = findRouteNoteForPlace(item.name, noteByPlace);
     result.push({
       ...item,
@@ -207,7 +228,7 @@ function parseRouteDay(line) {
   const zhMap = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
   const route = line.match(/路线\s*([一二三四五六1-6])/);
   if (route) return zhMap[route[1]] || Number(route[1]) || null;
-  const day = line.match(/(?:Day|DAY|D)\s*([1-9])/);
+  const day = line.match(/(?:Day|DAY|D)\s*([1-9]\d?)(?!\d)/);
   if (day) return Number(day[1]);
   return null;
 }
@@ -280,7 +301,7 @@ export async function matchGuidePlace({ placeName, city, note, sourceQuote, sign
 
   // Layer 1: place_name + city
   const placesL1 = await searchGuidePlaces(placeName, city, 10, signal);
-  const bestL1 = pickBestMatch(placesL1, placeName, 0.55);
+  const bestL1 = pickBestMatch(placesL1, placeName, 0.7);
   // 日志默认开，方便用户/开发自助 debug；上线前可统一关
   log.debug(`L1 "${placeName}"`, {
     city,
@@ -299,7 +320,7 @@ export async function matchGuidePlace({ placeName, city, note, sourceQuote, sign
     const expandedKeyword = `${placeName} ${kw}`.trim();
     signal?.throwIfAborted?.();
     const placesL2 = await searchGuidePlaces(expandedKeyword, city, 8, signal);
-    const bestL2 = pickBestMatch(placesL2, placeName, 0.4);
+    const bestL2 = pickBestMatch(placesL2, placeName, 0.7);
     log.debug(`L2 "${expandedKeyword}"`, {
       count: placesL2.length,
       candidates: placesL2.slice(0, 3).map(p => ({
@@ -356,14 +377,17 @@ function pickBestMatch(places, placeName, threshold) {
 // 例：("便宜坊烤鸭(王府井店)", "便宜坊") → 包含 → min/max = 3/11 ≈ 0.27 — 但我们更看重 LLM
 //     名是否被高德名包含。所以包含关系给一个保底加分。
 function similarityScore(amapName, llmName) {
-  const a = String(amapName || '')
+  const fullName = String(amapName || '')
     .toLowerCase()
     .replace(/\s+/g, '');
   const b = String(llmName || '')
     .toLowerCase()
     .replace(/\s+/g, '');
-  if (!a || !b) return 0;
-  if (a === b) return 1;
+  if (!fullName || !b) return 0;
+  if (fullName === b) return 1;
+  // A landmark in a hotel's branch/address qualifier does not identify the hotel as that landmark.
+  const a = fullName.replace(/\([^)]*\)|（[^）]*）/g, '');
+  if (!a) return 0;
   // 包含关系：LLM 名是高德名的子串（如 "便宜坊" ⊂ "便宜坊烤鸭"）→ 高置信
   if (a.includes(b) || b.includes(a)) {
     const minLen = Math.min(a.length, b.length);
@@ -402,9 +426,9 @@ async function enrichGeocodedPOI(geocoded, placeName) {
   if (!places.length) return null;
 
   // 用 similarity 筛掉"附近的不同店铺"——确保命中是同一个地点
-  // 阈值 0.5 略宽（已经被空间约束过滤过一次，主要拦明显误匹配）
-  const best = pickBestMatch(places, placeName, 0.5);
-  if (!best) return null;
+  // Nearby enrichment must obey the same identity threshold as direct search.
+  const best = pickBestMatch(places, placeName, 0.7);
+  if (!best || !isGuideCity(best, geocoded.city)) return null;
 
   // 优先用 PlaceSearch 的完整数据（含 rating/cost/photo）
   // lnglat 用 PlaceSearch 给的（POI 入口位置，比 Geocoder 的"地理中心"更适合 marker）
@@ -440,18 +464,23 @@ async function geocodeAsPOI(placeName, city) {
         resolve(null);
         return;
       }
-      resolve({
+      const poi = {
         id: `geo-${geo.adcode || Date.now().toString(36)}`,
         name: placeName, // Geocoder 没返回 name，用用户输入兜底
         addr: String(geo.formattedAddress || '').trim(),
-        province: String(geo.addressComponent?.province || '').trim(),
+        province: String(geo.province || geo.addressComponent?.province || '').trim(),
         city: String(
-          geo.addressComponent?.city || geo.addressComponent?.province || city || ''
+          geo.city ||
+            geo.addressComponent?.city ||
+            geo.province ||
+            geo.addressComponent?.province ||
+            ''
         ).trim(),
         district: String(geo.addressComponent?.district || '').trim(),
         type: '',
         lnglat: [lng, lat]
-      });
+      };
+      resolve(isGuideCity(poi, city) ? poi : null);
     });
   });
 }
@@ -473,30 +502,18 @@ function extractNounKeywords(note, sourceQuote, excludeKeyword = '') {
   return dedup.slice(0, 2);
 }
 
-// 攻略地点搜索的降级：
-//   Layer A: city 名（AI/用户给的城市）
-//   Layer B: 全国搜（city: false）
-//
-// 不回退 AppConfig.cityCode（默认北京）。否则上海攻略在 city 搜索失败后，会被北京候选污染。
+function isGuideCity(place, city) {
+  return !city || String(place.city).replace(/市$/, '') === String(city).replace(/市$/, '');
+}
+
+// 自动匹配只接受攻略城市；未知城市才全国检索，不把异城候选自动绑定。
 export async function searchGuidePlaces(keyword, city, pageSize = 8, signal) {
   const state = getAppState();
   if (!keyword) return [];
   const AMap = state.AMap || (await loadAMap());
   if (!state.AMap) setAMap(AMap);
 
-  const cityCandidates = [];
-  if (city) cityCandidates.push(city); // A: AI/用户城市名
-  cityCandidates.push(false); // B: 全国兜底。不要回退默认北京，避免跨城市攻略误匹配。
-
-  for (const cityArg of cityCandidates) {
-    signal?.throwIfAborted?.();
-    const places = await searchPlaces(AMap, keyword, { city: cityArg, pageSize, signal });
-    log.debug(
-      `[guide-search] "${keyword}" tried city=${JSON.stringify(cityArg)} → count=${places.length}`,
-      places.length ? `first="${places[0]?.name}"` : ''
-    );
-    if (places.length) return places;
-  }
-  log.warn(`"${keyword}" 搜索 0 结果`, { tried: cityCandidates });
-  return [];
+  signal?.throwIfAborted?.();
+  const places = await searchPlaces(AMap, keyword, { city: city || false, pageSize, signal });
+  return places.filter(place => isGuideCity(place, city));
 }

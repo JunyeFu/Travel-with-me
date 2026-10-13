@@ -45,14 +45,15 @@ export async function resolveLocation(services, loc, options = {}) {
 
 // 多结果搜索：给"添加地点"弹窗用，返回 POI 列表
 // 关键词命中 0~10 个 POI；调用方让用户挑一个
-// citylimit:false 是软提示，城市外的 POI 也能返回——以后跨城市行程能直接用
+// 自动匹配限定城市；手动搜索可明确传 citylimit:false 供用户跨城选择。
 export async function searchPlaces(AMap, keyword, options = {}) {
+  const citylimit = options.citylimit ?? options.city !== false;
   const fromBff = await fetchBffPois(
     '/v3/place/text',
     {
       keywords: keyword,
       city: options.city === false ? '' : options.city || AppConfig.cityCode,
-      citylimit: options.city === false ? 'false' : 'true',
+      citylimit: String(citylimit),
       offset: options.pageSize || 10,
       extensions: 'all'
     },
@@ -65,7 +66,7 @@ export async function searchPlaces(AMap, keyword, options = {}) {
       return;
     }
     const psOptions = {
-      citylimit: false,
+      citylimit,
       pageSize: options.pageSize || 10,
       extensions: 'all'
     };

@@ -23,6 +23,93 @@ afterEach(() => {
 });
 
 describe('workspace storage reliability', () => {
+  it('round trips incomplete visits and failed refresh history but omits pending queries', async () => {
+    const workspace = {
+      activeTripId: 't',
+      trips: [
+        {
+          id: 't',
+          locations: {},
+          days: [
+            {
+              id: 'd',
+              events: [{ id: 'a', visit: { min: 30, max: null } }],
+              plan: {
+                start: { locationId: null, minute: null },
+                end: { locationId: null, minute: null },
+                legs: [
+                  {
+                    from: 'start',
+                    to: 'a',
+                    mode: 'walking',
+                    estimate: null,
+                    queryState: 'failed',
+                    previousEstimate: { status: 'real', seconds: 60, paths: [], fetchedAt: 100 }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    };
+    const restored = storage.parseWorkspaceImport(storage.stringifyWorkspaceExport(workspace));
+    expect(restored.ok).toBe(true);
+    expect(restored.workspace).toEqual(workspace);
+    workspace.trips[0].days[0].plan.legs[0].queryState = 'pending';
+    await storage.saveWorkspace(workspace);
+    expect(
+      JSON.parse(store.get('trip-app:workspace')).workspace.trips[0].days[0].plan.legs[0].queryState
+    ).toBeNull();
+    expect(storage.stringifyWorkspaceExport(workspace)).not.toContain('pending');
+  });
+  it('backs up schema 5 and refuses future versions without replacing source', async () => {
+    const workspace = { trips: [{ id: 't', days: [], locations: {} }], activeTripId: 't' };
+    store.set(`${PREFIX}workspace`, JSON.stringify({ version: 5, workspace }));
+    expect(await storage.loadWorkspace()).toEqual(workspace);
+    expect(storage.getLastWorkspaceLoadInfo()).toMatchObject({
+      status: 'migrated',
+      fromVersion: 5
+    });
+    const future = JSON.stringify({ version: 7, workspace });
+    store.set(`${PREFIX}workspace`, future);
+    expect(await storage.loadWorkspace()).toBeNull();
+    expect(storage.getLastWorkspaceLoadInfo().shouldPersist).toBe(false);
+    expect(store.get(`${PREFIX}workspace`)).toBe(future);
+    expect(storage.parseWorkspaceImport({ schemaVersion: 7, workspace }).error).toBe(
+      'FUTURE_SCHEMA'
+    );
+  });
+  it('round trips plan date and source facts and rejects malformed plans', () => {
+    const workspace = {
+      trips: [
+        {
+          id: 't',
+          days: [
+            {
+              id: 'd',
+              events: [],
+              plan: {
+                travelDate: '2026-10-08',
+                start: { locationId: null, minute: null },
+                end: { locationId: null, minute: null },
+                legs: []
+              }
+            }
+          ],
+          locations: {}
+        }
+      ],
+      activeTripId: 't'
+    };
+    expect(
+      storage.parseWorkspaceImport(storage.stringifyWorkspaceExport(workspace)).workspace
+    ).toEqual(workspace);
+    workspace.trips[0].days[0].plan.legs = {};
+    expect(storage.parseWorkspaceImport(storage.stringifyWorkspaceExport(workspace)).ok).toBe(
+      false
+    );
+  });
   it('loads old schema workspace and creates recovery snapshot', async () => {
     const workspace = {
       trips: [{ id: 'trip-old', title: '旧行程', days: [], locations: {} }],

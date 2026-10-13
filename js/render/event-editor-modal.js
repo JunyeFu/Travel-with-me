@@ -57,6 +57,12 @@ function createModal(event, location, handlers) {
         </div>
 
         <div class="editor-section-title">更新地点信息</div>
+        <div class="modal-form-row plan-grid">
+          <label>最短停留（分钟）<input class="editor-visit-min" type="number" min="0" step="1" value="${event.visit?.min ?? ''}" /></label>
+          <label>最长停留（分钟）<input class="editor-visit-max" type="number" min="0" step="1" value="${event.visit?.max ?? ''}" /></label>
+          <label>已确认固定开始时间<input class="editor-fixed-start" type="time" value="${event.fixedStart == null ? '' : `${String(Math.floor((event.fixedStart % 1440) / 60)).padStart(2, '0')}:${String(event.fixedStart % 60).padStart(2, '0')}`}" /></label>
+          <label><input class="editor-fixed-next" type="checkbox" ${event.fixedStart >= 1440 ? 'checked' : ''} />次日固定时间</label>
+        </div>
         <div class="editor-location-card">
           ${renderLocationCardHTML(location, '当前地点', 'static', getIconIdForEvent(event, location))}
         </div>
@@ -273,27 +279,48 @@ function bindEvents(root, initialLocation, handlers) {
   root.querySelector('.modal-close').addEventListener('click', openEventEditorModal.close);
   root.querySelector('.modal-cancel').addEventListener('click', openEventEditorModal.close);
 
+  root
+    .querySelector('.editor-visit-max')
+    .addEventListener('input', e => e.target.setCustomValidity(''));
+
   form.addEventListener('submit', e => {
     e.preventDefault();
     if (!handlers?.onConfirm) return;
 
     const lng = Number(selectedLocation.lnglat?.[0]);
     const lat = Number(selectedLocation.lnglat?.[1]);
-    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+    const lnglat = Number.isFinite(lng) && Number.isFinite(lat) ? [lng, lat] : null;
 
+    const minValue = root.querySelector('.editor-visit-min').value,
+      maxValue = root.querySelector('.editor-visit-max').value;
+    const min = minValue === '' ? null : Number(minValue),
+      max = maxValue === '' ? null : Number(maxValue);
+    if (min != null && max != null && max < min) {
+      root.querySelector('.editor-visit-max').setCustomValidity('最长停留不能小于最短停留');
+      root.querySelector('.editor-visit-max').reportValidity();
+      return;
+    }
+    const fixedText = root.querySelector('.editor-fixed-start').value;
+    const fixed = fixedText
+      ? Number(fixedText.split(':')[0]) * 60 +
+        Number(fixedText.split(':')[1]) +
+        (root.querySelector('.editor-fixed-next').checked ? 1440 : 0)
+      : null;
     handlers.onConfirm({
       event: {
         title: root.querySelector('.editor-title-input').value.trim(),
         icon: iconPicker.getValue(),
         targetDayId: containerPicker.getValue(),
         timeSlot: timeSlotPicker.getValue(),
+        visit: min == null && max == null ? null : { min, max, source: 'user' },
+        fixedStart: fixed,
         note: root.querySelector('.editor-note-input').value.trim()
       },
       location: {
         name: selectedLocation.name,
         query: selectedLocation.query || selectedLocation.name,
         addr: selectedLocation.addr,
-        lnglat: [lng, lat],
+        lnglat,
         photo: selectedLocation.photo || '',
         type: selectedLocation.type || ''
       },

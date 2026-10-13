@@ -10,6 +10,9 @@ let menuDocListener = null; // 外部 close 时清理
 export function renderWorkspaceTabs(handlers = {}) {
   const root = document.getElementById('workspace-tabs');
   if (!root) return;
+  const focusedTripId = root.contains(document.activeElement)
+    ? document.activeElement.dataset.tripId
+    : null;
 
   const workspace = getWorkspace();
   root.innerHTML = `
@@ -22,7 +25,29 @@ export function renderWorkspaceTabs(handlers = {}) {
 
   root.querySelectorAll('[data-trip-id]').forEach(button => {
     button.addEventListener('click', () => handlers.onSelectTrip?.(button.dataset.tripId));
+    button.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const tabs = [...root.querySelectorAll('[data-trip-id]')];
+      const index = tabs.indexOf(button);
+      const next =
+        event.key === 'Home'
+          ? 0
+          : event.key === 'End'
+            ? tabs.length - 1
+            : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+      const tripId = tabs[next].dataset.tripId;
+      handlers.onSelectTrip?.(tripId);
+      [...root.querySelectorAll('[data-trip-id]')]
+        .find(tab => tab.dataset.tripId === tripId)
+        ?.focus();
+    });
   });
+  if (focusedTripId) {
+    [...root.querySelectorAll('[data-trip-id]')]
+      .find(tab => tab.dataset.tripId === focusedTripId)
+      ?.focus();
+  }
 
   root.querySelector('[data-create-trip]')?.addEventListener('click', () => {
     handlers.onCreateTrip?.();

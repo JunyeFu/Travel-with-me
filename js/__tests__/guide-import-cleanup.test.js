@@ -7,6 +7,17 @@ import {
 } from '../guide-import-cleanup.js';
 
 describe('cleanGuideExtractedEvents', () => {
+  it('retains distinct visits to the same place within one time slot', () => {
+    const events = cleanGuideExtractedEvents(
+      [540, 650].map(arrival => ({
+        place_name: '清河坊步行街',
+        day: 1,
+        time_slot: 'morning',
+        time_facts: { arrival }
+      }))
+    );
+    expect(events).toHaveLength(2);
+  });
   it('filters common non-place noise from guide extraction output', () => {
     const warnings = [];
     const events = cleanGuideExtractedEvents(

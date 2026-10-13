@@ -1,127 +1,43 @@
 # Product and Architecture Blueprint
 
-> **辅助文件** | 权威开发文档: [DEVELOPMENT.md](../../DEVELOPMENT.md)
+> 当前产品基线：2026-10-02，2D-only。入口见 [README](../../README.md)，实现边界见 [ARCHITECTURE](../../ARCHITECTURE.md)。
 
-## Product definition
+## 产品定义与主流程
 
-Travel With Me is a desktop-first travel planning workspace. It turns Chinese travel notes and selected places into an editable multi-day itinerary, proves that itinerary on a real 2D map, then offers 3D only when it adds planning value. It is not turn-by-turn navigation or a generic 3D city viewer.
+Travel With Me 是桌面优先的旅行规划工作台：将中文攻略或手动选择的地点组织为可编辑的多天行程，在真实 2D 地图上查看地点和道路连接，并保存、导出或分享。它不是实时导航，也不是 3D 城市查看器。
 
-The authoritative 2D data contract is maintained in [2D Data Foundation](../architecture/2d-data-foundation.md).
+文字输入 → AI 提取与地点匹配 → 可编辑预览 → 确认创建行程 → 选择 Day 查看路线 → 本地保存 / JSON 备份 / PNG 分享。
 
-## Core rule
+- AI 入口是输入弹窗，提取后才进入预览；目前不直接上传图片、不提供 OCR。
+- workspace 最多三条 trip。schema v5 使用 Day 顺序和标题，不包含日历日期；未排期事件保留在 `unscheduled[]`。
+- 2D 地图是地理事实的展示层，持久化模型是业务事实源。估算直线不得冒充真实道路。
+- 移动 Web 提供行程 / 地图切换和核心操作兼容；Kotlin 原生迁移是独立计划，M0 样本完成，M1–M4 未启动。
 
-**2D is the geographic source of truth; 3D is a spatial interpretation of the same data.** No 3D object may invent a route, coordinate, elevation conclusion, building identity, land-cover claim, or landmark appearance. Missing authoritative data produces a neutral template or no visual at all.
+## 数据与凭证边界
 
-## Canonical flow
+遵循 [2D 数据契约](../architecture/2d-data-foundation.md)。POI、地理编码、道路规划优先经 BFF；地图由 AMap JS API 2.0 渲染。Web JS Key 用于浏览器地图；Web Service Key、DeepSeek Key 保留在服务端环境变量。`.env` 不进入仓库或导出文件。
 
-```text
-User / AI guide
-  -> itinerary draft
-  -> 2D data foundation
-       BFF Web Service API: POI, geocode, nearby search, route
-       locations[].lnglat, routeToNext.geometry, annotations[]
-  -> persisted trip/workspace
-  -> 2D map: markers, route, route card
-  -> 3D: selected work-area projection, terrain, 2D route-style surface projection, authorized assets
-```
+路线保留原生描边、透明度、方向箭头和选择反馈，只按时段替换五档蓝黄离散色号。日照色是时间示意，不宣称真实日出日落或天气计算。
 
-`trip` is the only persistent business model. The 2D map and Three.js scene are renderers, never competing stores.
+## 当前交付边界
 
-## Credential boundary
+- 当前维护：2D 编辑、地图双向选择、文字导入、数据恢复、分享和桌面 / 移动核心闭环。
+- 3D 代码与文档仅作封存参考，不接回入口、默认测试、依赖或 BFF；恢复须另行决策，见 [封存规则](../../archive/3d/README.md)。历史 D1 / Gate 50 不再是活动任务。
+- 账号、云同步、收费、OCR 与 Kotlin 后续阶段不属于已交付能力。
+- 发布按 [发布合同](../operations/release-playbook.md) 绑定准确候选提交；本地通过不代表 CI、容器、人工授权或正式发布已完成。
 
-| Credential      | Location       | Responsibility                       |
-| --------------- | -------------- | ------------------------------------ |
-| Web JS API Key  | browser config | AMap JS API 2.0 map rendering        |
-| jscode          | server `.env`  | JS API security configuration        |
-| Web Service Key | server `.env`  | POI, geocode, nearby search, routing |
+## 验证与文档归属
 
-The BFF owns all Web Service calls, overwrites browser-supplied keys, applies source/rate limits, and never returns the service key.
+默认执行格式、lint、2D 隔离、单元测试、mock 浏览器回归与离线攻略样本评测。真实 AMap / DeepSeek 验证单独记录，不把 mock 或固定 AI 输出当作 LIVE 效果。
 
-## 2D contract
+| 文档                                           | 用途                   |
+| ---------------------------------------------- | ---------------------- |
+| `docs/README.md`                               | 活动文档与历史资料索引 |
+| `ARCHITECTURE.md`                              | 实现模块边界           |
+| `docs/engineering/api.md`                      | 服务端接口与环境变量   |
+| `docs/design/ui-visual-style-guide.md`         | 当前 2D 视觉与交互规范 |
+| `docs/operations/release-playbook.md`          | 同候选发布证据合同     |
+| `TODO.md`                                      | 当前工作队列           |
+| `docs/product/kotlin-native-migration-plan.md` | 独立原生迁移计划       |
 
-Before a day can enter useful 3D, 2D must have resolved location coordinates, a real route geometry or explicit estimated/failure state, visible marker/route feedback, and persisted route provenance (`source`, `mode`, `paths`, `fetchedAt`). Estimated straight lines may render in 2D but never masquerade as real roads in 3D.
-
-## 3D contract
-
-| 2D fact                      | 3D expression                                         |
-| ---------------------------- | ----------------------------------------------------- |
-| `locations[].lnglat`         | scene projection, marker and fallback-building anchor |
-| `routeToNext.geometry.paths` | 2D route-style projection onto valid 3D surfaces      |
-| elevation provider           | terrain mesh and confidence-gated slope insight       |
-| `annotations[]`              | shared user markers                                   |
-| authorized `geoAssets`       | footprint, vegetation, landmark detail                |
-
-3D is an inspection surface with a reliable 2D exit, not the default editor.
-
-## Delivery stages
-
-### D0: Data foundation — closed for the desktop private-test baseline
-
-- Complete BFF-first POI, geocode, nearby search, and routing.
-- Persist real route geometry and its provenance.
-- Keep CI mocked; run live AMap checks separately.
-
-Exit: a desktop user can create/import a trip, resolve locations, inspect real 2D routes, reload, and retain the result.
-
-### D1: 3D route and terrain truth — current priority
-
-- Require cached 2D route geometry for route projection.
-- Gate terrain claims on elevation confidence.
-- Follow the fixed generation state machine: freeze 2D, derive the selected work-area envelope,
-  raise a uniform-height slab, refine terrain, carve water, emerge roads and bridges, highlight
-  route, raise building massing, dissolve building detail.
-- Add overview/route-focus/inspect camera states, route elevation summaries, and visual gates.
-- The 3D route must inherit the active 2D route color, width, dash state, and selected-segment style.
-  It is flat on flat surfaces, conforms tightly to raised/depressed valid surfaces, and is absent
-  when no route segment intersects the selected work area.
-
-Current D1 execution is Gate 50 presentation productization:
-
-```text
-bounded 3D work area
-  -> 2D route-style surface projection
-  -> terrain presentation
-  -> camera composition
-  -> urban semantic density
-  -> QA v2 / Gate 50 manual decision
-```
-
-P4 DEM tiles, P5 landmark restoration, and commercial provider routing are blocked until Gate 50
-accepts the bounded local diorama.
-
-### D2: Authorized place detail
-
-- Ingest licensed building footprints, roads, water, bridges, land cover, and landmark assets with provenance.
-- Chunk/cull terrain and vegetation and enforce LOD budgets.
-
-### D3: Private beta and commercial readiness
-
-- Accounts, cloud persistence, quota/observability, privacy controls, and real-user evaluation.
-
-Mobile Web is compatibility-only. Native Android is a separate Kotlin product decision after D1/D2 validation.
-
-## Quality gates
-
-- Format, lint, unit tests, and mocked browser tests pass for every merge.
-- Live provider checks are credentialed, opt-in, and excluded from CI.
-- 3D is reviewed at overview, entering, inspect, and exit states.
-- 3D visual changes require deterministic ROI screenshots plus `window.__threeDebug__.qa` metrics once the Alpha gate is active.
-- Every external asset records source, licence, attribution, and update metadata.
-
-## Document ownership
-
-| Document                                                 | Role                                             |
-| -------------------------------------------------------- | ------------------------------------------------ |
-| This blueprint                                           | product direction, data truth, delivery gates    |
-| `docs/README.md`                                         | maintained document map and removed-history list |
-| `ARCHITECTURE.md`                                        | implemented module boundaries and ADRs           |
-| `docs/engineering/api.md`                                | BFF/API contracts and environment variables      |
-| `docs/operations/quality-gate-status.md`                 | current quality gate verification ledger         |
-| `docs/architecture/3d/deep-research-integration.md`      | latest 3D technical decisions and QA gates       |
-| `docs/architecture/3d/generation-process-alignment.md`   | required 2D-to-3D user-visible process           |
-| `docs/architecture/3d/top-down-execution-roadmap.md`     | P0-P6 3D implementation order                    |
-| `docs/engineering/qa/visual-baseline.md`                 | ROI visual baseline execution                    |
-| `docs/engineering/qa/debug-contract.md`                  | `window.__threeDebug__.qa` schema                |
-| `docs/architecture/3d/assets-landcover-and-landmarks.md` | licensed asset pipeline                          |
-| `TODO.md`                                                | active backlog only                              |
-| `docs/product/commercialization.md`                      | post-validation market decisions                 |
+本轮对照、缺陷表和验收见 [2026-10-02 审查](../engineering/2d-conformance-review-2026-10-02.md)。

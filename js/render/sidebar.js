@@ -6,12 +6,14 @@
 //   - 回调：用户点了 tab / event / route，会调 main.js 传进来的 handler
 // 这样 sidebar 不直接依赖 main.js，main.js 决定点击后做什么
 
-import { AppConfig } from '../config.js';
 import { getTrip, getLocation, getAppState, getRouteCard, hasActiveTrip } from '../state.js';
 import { escapeHTML, formatDistance, formatDuration, getTransportLabel } from '../utils.js';
 import { getIconIdForEvent, renderIconSVG } from './icons.js';
-import { getTimeSlotLabel, normalizeTimeSlot } from '../time-slots.js';
+import { getTimeSlotLabel, getTimeSlotHour, normalizeTimeSlot } from '../time-slots.js';
+import { getRouteDaylightColor } from '../route-guidance.js';
 import { getRouteDisplayLabel, normalizeRouteToNext } from '../route-config.js';
+import { formatPlanRange, evaluateDayPlan, describeGuideTime } from '../day-plan.js';
+import { mountDayPlan, refreshDayPlan } from './day-plan-modal.js';
 
 // ─── 静态部分（标题副标题） ─────────────────────────────
 
@@ -87,7 +89,7 @@ export function updateVisibleDayGroups(dayId) {
       : 'none';
   });
   document.querySelectorAll('.route-card').forEach(card => {
-    card.hidden = dayId === 'all';
+    card.hidden = dayId === 'all' && !card.querySelector('.plan-leg');
   });
   document.querySelectorAll('.day-add-btn').forEach(btn => {
     btn.hidden = btn.classList.contains('unscheduled-add-btn') ? dayId !== 'all' : dayId === 'all';
@@ -159,8 +161,18 @@ export function renderItinerary(handlers) {
         </div>
         <button type="button" class="day-add-btn">+ 添加地点</button>
       </div>
+      ${day.plan ? '<form class="plan-form"><div class="plan-settings-slot"></div><div class="plan-results-slot"></div>' : ''}
       <div class="event-container"></div>
+      ${day.plan ? '<div class="plan-actions-slot"></div></form>' : ''}
     `;
+
+    const planButton = document.createElement('button');
+    planButton.type = 'button';
+    planButton.className = 'day-plan-btn';
+    planButton.textContent = day.plan ? '编辑时间评估' : '评估当天行程';
+    planButton.hidden = Boolean(day.plan);
+    planButton.addEventListener('click', () => handlers.onAssessDay?.(day.id));
+    dayGroup.querySelector('.day-title').appendChild(planButton);
 
     dayGroup.querySelector('.day-edit-btn').addEventListener('click', () => {
       handlers.onEditDay?.(day.id);
@@ -172,9 +184,10 @@ export function renderItinerary(handlers) {
 
     const eventsContainer = dayGroup.querySelector('.event-container');
     bindContainerDropEvents(eventsContainer, day, handlers);
-    let routeOrder = 0;
+    const planSegments = day.plan ? buildRouteSegments(day) : [];
+    if (planSegments[0]) eventsContainer.appendChild(createRouteCard(planSegments[0], handlers));
 
-    if (!day.events.length) {
+    if (!day.events.length && !day.plan) {
       eventsContainer.classList.add('event-container-empty');
       eventsContainer.innerHTML = `
         <div class="empty-day-state">
@@ -191,16 +204,19 @@ export function renderItinerary(handlers) {
 
     day.events.forEach((event, eventIndex) => {
       eventsContainer.appendChild(createEventCard(day, event, eventIndex, handlers));
+      if (planSegments[eventIndex + 1])
+        eventsContainer.appendChild(createRouteCard(planSegments[eventIndex + 1], handlers));
 
       const nextEvent = day.events[eventIndex + 1];
-      if (shouldCreateRouteCard(event, nextEvent)) {
-        const segment = buildRouteSegment(day, event, nextEvent, eventIndex, routeOrder);
+      if (!day.plan && shouldCreateRouteCard(event, nextEvent)) {
+        const segment = buildRouteSegment(day, event, nextEvent, eventIndex);
         eventsContainer.appendChild(createRouteCard(segment, handlers));
-        routeOrder += 1;
       }
     });
 
     container.appendChild(dayGroup);
+    if (day.plan)
+      mountDayPlan(dayGroup, day, trip.locations, handlers.planHandlers(day.id), trip.id);
   });
 
   // V5 新增：未排期 section（与 day-group 并列，始终展示在末尾）
@@ -255,6 +271,7 @@ function createEventCard(day, event, eventIndex, handlers) {
   card.dataset.eventId = event.id;
   card.dataset.dayId = day.id;
   card.dataset.timeSlot = normalizeTimeSlot(event.timeSlot);
+  if (day.plan) card.dataset.stopNumber = String(eventIndex + 1);
   card.tabIndex = 0;
   card.setAttribute('aria-label', `在地图上查看${event.title || loc.name}`);
   const selected = getAppState().selectedTarget;
@@ -271,6 +288,10 @@ function createEventCard(day, event, eventIndex, handlers) {
     ? ''
     : '<button type="button" class="event-add-time-btn">+ 添加时间</button>';
   const noteHTML = event.note ? `<div class="event-note">${escapeHTML(event.note)}</div>` : '';
+  const stop = evaluateDayPlan(day)?.stops.find(item => item.eventId === event.id);
+  const timingHTML = stop
+    ? `<p class="event-plan-time">到达 ${formatPlanRange(stop.arrival)} · 离开 ${formatPlanRange(stop.departure)}${describeGuideTime(stop, event.sourceFacts?.arrival)}</p>`
+    : '';
   const actionHTML = isUnscheduled
     ? `
         <button type="button" class="event-action-btn" data-action="edit" title="编辑">···</button>
@@ -292,6 +313,7 @@ function createEventCard(day, event, eventIndex, handlers) {
         <span class="event-desc">${escapeHTML(event.title || '')}</span>
         ${addTimeHTML}
       </div>
+      ${timingHTML}
       <div class="location-info">
         <svg class="location-icon" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
@@ -449,6 +471,7 @@ function clearDragInsertState(except = null) {
 function canMoveWithinTimeSlot(day, eventIndex, direction) {
   const targetIndex = direction === 'up' ? eventIndex - 1 : eventIndex + 1;
   if (targetIndex < 0 || targetIndex >= day.events.length) return false;
+  if (day.plan) return true;
   return (
     normalizeTimeSlot(day.events[eventIndex]?.timeSlot) ===
     normalizeTimeSlot(day.events[targetIndex]?.timeSlot)
@@ -537,6 +560,7 @@ export function setRouteCardLoading(segment) {
   if (!card) return;
   card.className = 'route-card loading';
   card.style.setProperty('--route-color', segment.color);
+  const editor = card.querySelector('.plan-leg');
   card.innerHTML = `
     <div class="route-card-main">
       <div class="route-body">
@@ -548,6 +572,7 @@ export function setRouteCardLoading(segment) {
       </div>
     </div>
   `;
+  if (editor) card.appendChild(editor);
 }
 
 export function updateRouteCardOk(segment, detail) {
@@ -563,6 +588,7 @@ export function updateRouteCardError(segment, message) {
   if (!card) return;
   card.className = 'route-card error';
   card.style.setProperty('--route-color', segment.color);
+  const editor = card.querySelector('.plan-leg');
   card.innerHTML = `
     <div class="route-card-main">
       <div class="route-body">
@@ -574,6 +600,7 @@ export function updateRouteCardError(segment, message) {
       </div>
     </div>
   `;
+  if (editor) card.appendChild(editor);
 }
 
 function renderRouteCardResult(segment, detail, statusClass) {
@@ -587,11 +614,12 @@ function renderRouteCardResult(segment, detail, statusClass) {
   const customSteps = route.legs?.map(leg => `${getTransportLabel(leg.mode)}：${leg.label}`) || [];
   const steps = customSteps.length ? customSteps : detail.mode === 'transit' ? detail.steps : [];
 
+  const editor = card.querySelector('.plan-leg');
   card.innerHTML = `
     <div class="route-card-main">
       <div class="route-body">
         <div class="route-title">
-          <span class="route-mode">${escapeHTML(detail.label)}</span>
+          <span class="route-mode">${escapeHTML(detail.label || getRouteDisplayLabel(segment.routeToNext))}</span>
         </div>
         <div class="route-meta">${meta}</div>
         <button type="button" class="route-edit-btn" title="编辑路线">编辑</button>
@@ -609,6 +637,7 @@ function renderRouteCardResult(segment, detail, statusClass) {
       </div>
     </div>
   `;
+  if (editor) card.appendChild(editor);
 }
 
 export function resetRouteCards() {
@@ -619,7 +648,9 @@ export function resetRouteCards() {
       if (!card) return;
       card.className = 'route-card idle';
       card.style.setProperty('--route-color', segment.color);
+      const editor = card.querySelector('.plan-leg');
       card.innerHTML = renderRouteIdleHTML(segment);
+      if (editor) card.appendChild(editor);
     });
   });
 }
@@ -658,18 +689,77 @@ export function shouldCreateRouteCard(event, nextEvent) {
 }
 
 export function buildRouteSegments(day) {
+  if (day.plan) {
+    const departures = new Map(
+      evaluateDayPlan(day).stops.map(stop => [stop.eventId, stop.departure[0]])
+    );
+    return day.plan.legs.map((leg, index) => {
+      const fromLoc = getTrip().locations[leg.fromLocationId] || {},
+        toLoc = getTrip().locations[leg.toLocationId] || {};
+      const fromEvent = day.events.find(event => event.id === leg.from);
+      // 区间取较早出发值；首段使用用户出发时间，不以地点身份推断重复访问的时刻。
+      const departure =
+        leg.from === 'start'
+          ? day.plan.start.minute == null
+            ? null
+            : day.plan.start.minute * 60
+          : departures.get(leg.from);
+      return {
+        id: `${day.id}-plan-route-${index}`,
+        dayId: day.id,
+        eventId: leg.from,
+        planLeg: leg,
+        fromId: leg.fromLocationId,
+        toId: leg.toLocationId,
+        fromName: fromLoc.name || '待选出发地点',
+        toName: toLoc.name || '待选结束地点',
+        fromLngLat: fromLoc.lnglat,
+        toLngLat: toLoc.lnglat,
+        fromCity: fromLoc.city || getTrip().city,
+        toCity: toLoc.city || getTrip().city,
+        mode: leg.mode,
+        routeToNext: {
+          mode: leg.mode,
+          label: leg.mode ? undefined : '待选择交通方式',
+          manual: true
+        },
+        color: getRouteDaylightColor(
+          departure == null ? getRouteEventHour(fromEvent) : departure / 3600
+        )
+      };
+    });
+  }
   const segments = [];
-  let routeOrder = 0;
   day.events.forEach((event, eventIndex) => {
     const next = day.events[eventIndex + 1];
     if (!shouldCreateRouteCard(event, next)) return;
-    segments.push(buildRouteSegment(day, event, next, eventIndex, routeOrder));
-    routeOrder += 1;
+    segments.push(buildRouteSegment(day, event, next, eventIndex));
   });
   return segments;
 }
 
-function buildRouteSegment(day, event, nextEvent, eventIndex, routeOrder) {
+function getRouteEventHour(event) {
+  const minute = event?.fixedStart ?? event?.sourceFacts?.arrival;
+  return minute == null ? getTimeSlotHour(event?.timeSlot) : minute / 60;
+}
+
+export function refreshPlanSummary(day) {
+  refreshDayPlan(day);
+  const result = evaluateDayPlan(day);
+  document.querySelectorAll(`.card[data-day-id="${day.id}"]`).forEach(card => {
+    card.querySelector('.event-plan-time')?.remove();
+    const stop = result?.stops.find(item => item.eventId === card.dataset.eventId);
+    if (stop) {
+      const p = document.createElement('p');
+      p.className = 'event-plan-time';
+      const event = day.events.find(item => item.id === stop.eventId);
+      p.textContent = `到达 ${formatPlanRange(stop.arrival)} · 离开 ${formatPlanRange(stop.departure)}${describeGuideTime(stop, event.sourceFacts?.arrival)}`;
+      card.querySelector('.card-content')?.appendChild(p);
+    }
+  });
+}
+
+function buildRouteSegment(day, event, nextEvent, eventIndex) {
   const fromLoc = getLocation(event.locationId);
   const toLoc = getLocation(nextEvent.locationId);
   const routeToNext = normalizeRouteToNext(event.routeToNext);
@@ -684,8 +774,10 @@ function buildRouteSegment(day, event, nextEvent, eventIndex, routeOrder) {
     toName: toLoc.name,
     fromLngLat: fromLoc.lnglat,
     toLngLat: toLoc.lnglat,
+    fromCity: fromLoc.city || getTrip().city || '',
+    toCity: toLoc.city || getTrip().city || '',
     mode,
     routeToNext,
-    color: AppConfig.routeColors[routeOrder % AppConfig.routeColors.length]
+    color: getRouteDaylightColor(getRouteEventHour(event))
   };
 }

@@ -1,36 +1,26 @@
 # 2D Data Foundation
 
-> **辅助文件** | 权威开发文档: [DEVELOPMENT.md](../../DEVELOPMENT.md)
+> 当前 2D 数据契约；产品边界见 [产品总纲](../product/architecture-blueprint.md)，3D 已封存。
 
-## Purpose
+## 事实与持久化
 
-The 2D map is the project's geographic source of truth. The 3D renderer may reinterpret this data, but it must never invent a coordinate, route, waterway, bridge, or building geometry that is absent from the persisted trip.
+| 记录       | 字段                         | 当前用途                                          |
+| ---------- | ---------------------------- | ------------------------------------------------- |
+| 地点       | `locations[id]`              | 规范化坐标、名称和地址；地图标记与事件共用        |
+| 行程天     | `days[]`                     | schema v5 的有序 Day 和标题，不包含日历日期       |
+| 道路       | `event.routeToNext.geometry` | 保存真实路线坐标、方式和来源；选择对应 Day 后绘制 |
+| 未排期事项 | `unscheduled[]`              | 保留尚未分配到 Day 的事件                         |
 
-## Canonical records
+地图是展示层，不是第二份业务存储。坐标统一为 `[lng, lat]`；外部 POI / 地理编码结果在进入模型前规范化。
 
-| Record          | Persisted field              | Primary source                             | 2D behavior                 | 3D behavior                        |
-| --------------- | ---------------------------- | ------------------------------------------ | --------------------------- | ---------------------------------- |
-| Place           | `locations[id]`              | AMap Web Service POI/geocode or user input | marker and address          | anchor/marker/building fallback    |
-| Itinerary route | `event.routeToNext.geometry` | AMap Web Service direction response        | route polyline              | terrain-conforming road ribbon     |
-| Waterway        | `geoAssets.waterways[]`      | authorized polygon/centerline provider     | water overlay when enabled  | carved channel and water surface   |
-| Bridge          | `geoAssets.bridges[]`        | authorized centerline provider             | bridge overlay when enabled | deck-first crossing geometry       |
-| Land cover      | `geoAssets.landcover[]`      | licensed land-cover provider               | optional map layer          | deterministic vegetation templates |
+## 验收契约
 
-## Acceptance contract
+1. 地点记录保留实际来源。BFF 高德结果使用 `amap-web-service`，SDK 路径不得冒充 BFF。
+2. 真实路线 geometry 包含有序坐标、`mode`、`fetchedAt` 和实际 `source`；失败时的估算直线必须显式区分，不能缓存为真实道路。
+3. 路线规划优先 BFF，SDK 后备路径保留现有契约。浏览器回归隔离外部请求；真实服务验证单独执行。
+4. BFF 只允许当前 2D 使用的高德端点，以服务端 Key 替代浏览器传入的 Key，不返回 Web Service 密钥。
+5. JSON 整工作区替换前保留恢复快照；解析或保存失败不能覆盖现有有效数据。
 
-1. A resolved place must contain a valid `[lng, lat]` and a `source`; AMap Web Service results use `source: 'amap-web-service'`.
-2. A real route must contain two or more ordered coordinate points, `mode`, `fetchedAt`, and `source: 'amap-web-service'`. A failed request may render an estimated 2D line, but it must not be cached as real geometry.
-3. Waterways, bridges, land cover, landmarks, and authoritative building footprints require `source`, `licence`, `attribution`, and `updatedAt` provenance. Missing provenance fails closed to no geometry or a neutral procedural building fallback.
-4. The 2D renderer and 3D renderer consume the same persisted fields. They must not perform independent provider lookups for the same displayed trip state.
-5. The BFF allowlists only the AMap endpoints used by these records. It replaces any client-supplied key with the server-held Web Service Key.
+## 封存边界
 
-## Validation gates
-
-- Place search accepts both AMap Web Service `"lng,lat"` values and JS SDK location objects, then stores a normalized tuple.
-- Reverse geocoding, POI search, and route planning use the BFF before an SDK fallback.
-- A seeded browser test stubs the BFF, not only the JS SDK, so CI cannot silently depend on live AMap data.
-- A real local verification must show resolved places, at least one completed route, and a visible 3D entry control before P2 3D asset work begins.
-
-## Current provider boundary
-
-AMap supplies POIs, geocoding, and itinerary routing. It is not treated as a source of reusable waterway, bridge, terrain, vegetation, or building geometry. The desktop prototype uses a bounded OpenStreetMap/Overpass context query for attributable building, waterway, and bridge geometry; its ODbL provenance is persisted in `geoAssets`. A commercial landmark pipeline still requires an explicitly licensed source and does not use this context query for remote models.
+旧 `geoAssets`、地形、桥梁、建筑等结构不是活动 2D 功能。历史数据按现有导入兼容规则处理，不因此恢复 Overpass 查询、3D 渲染或资产流水线。封存实现与恢复前置条件见 [3D archive](../../archive/3d/README.md)。

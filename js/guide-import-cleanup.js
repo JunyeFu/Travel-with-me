@@ -67,7 +67,7 @@ export function cleanGuideExtractedEvents(events, options = {}) {
 
     const key = `${item.day || ''}:${item.time_slot || ''}:${normalizeGuideCleanupText(
       item.place_name
-    )}`;
+    )}:${item.source_sequence ?? item.time_facts?.arrival ?? item.source_quote}`;
     if (seen.has(key)) continue;
     seen.add(key);
     normalized.push(item);

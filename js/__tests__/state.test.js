@@ -38,6 +38,49 @@ describe('createTrip', () => {
 });
 
 describe('workspace data integrity', () => {
+  it('keeps adopted order, date and repeated-place legs through normalization', () => {
+    state.initWorkspace({
+      activeTripId: 't',
+      trips: [
+        {
+          id: 't',
+          locations: { x: { name: '同一地点', lnglat: [120, 30] } },
+          days: [
+            {
+              id: 'd',
+              events: [
+                { id: 'late', locationId: 'x', timeSlot: 'evening', visit: { min: 20, max: 30 } },
+                { id: 'early', locationId: 'x', timeSlot: 'morning' }
+              ],
+              plan: {
+                travelDate: '2026-10-08',
+                start: { locationId: 'x', minute: 540 },
+                end: { locationId: 'x', minute: 720 },
+                legs: []
+              }
+            }
+          ]
+        }
+      ]
+    });
+    state.updateEventInDay('d', 'late', { timeSlot: 'afternoon' });
+    const saved = structuredClone(state.getWorkspace());
+    state.initWorkspace(saved);
+    const day = state.getTrip().days[0];
+    expect(day.events.map(e => e.id)).toEqual(['late', 'early']);
+    expect(day.plan.travelDate).toBe('2026-10-08');
+    expect(day.plan.legs).toHaveLength(3);
+    expect(day.plan.legs.every(l => l.mode === null)).toBe(true);
+    state.cachePlanRoute('d', 'start', 'late', { status: 'real', seconds: 60, paths: [] });
+    state.updateLocation('x', { name: '改名，不改变地点' });
+    expect(day.plan.legs[0].estimate?.seconds).toBe(60);
+    state.updateLocation('x', { lnglat: [121, 31] });
+    expect(day.plan.legs[0].estimate).toBeNull();
+    expect(day.plan.legs[0].previousEstimate.seconds).toBe(60);
+    state.cachePlanRoute('d', 'start', 'late', null, 'failed');
+    expect(day.plan.legs[0].queryState).toBe('failed');
+    expect(day.plan.legs[0].previousEstimate.seconds).toBe(60);
+  });
   it('never deletes persisted demo-trip edits during normalization', () => {
     state.initWorkspace({
       trips: [

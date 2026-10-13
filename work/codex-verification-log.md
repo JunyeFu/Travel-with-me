@@ -1,5 +1,51 @@
 # Codex Verification Log
 
+## 2026-10-02 — R1–R6 route truth and keyboard closure
+
+- Plan and sources: `docs/engineering/route-trust-repair-2026-10-02.md`; official AMap, W3C Tabs and Node child-process contracts.
+- Fixed: endpoint city propagation; no fabricated real geometry; one bus candidate per segment; native SDK transit paths without duplicate rendering; complete cached paths and truthful SDK source; keyboard wrap/Home/End/focus preservation; Windows LIVE launcher and semantic provider checks.
+- Review caught and fixed: real AMap empty railway placeholders, body accidentally bound as a mobile-view button, and default SDK fixtures leaking requests to the real BFF.
+- Final gates: check and diff-check PASS; 197 unit tests PASS; offline 12 fixtures PASS; E2E 27 PASS / 15 platform skips; LIVE AMap 2 PASS and DeepSeek required-stop/day checks PASS. Real keyboard desktop/mobile screenshots and original-arrow route screenshots reviewed. Route visual first run had 3 unclassified console errors; diagnostic rerun had 0, plus one SDK performance warning. See plan for exact evidence boundaries.
+- No credentials, 3D, Kotlin, releases or unrelated user work changed.
+
+## 2026-10-02 — Document conformance and F01–F04 repair
+
+- Expected: align maintained documents with the active 2D implementation, verify official advisories / W3C guidance, reproduce observed defects, then implement and review.
+- Reproduced: strengthened E2E failed with zero route overlays despite visible cards; AI overlength error remained after valid input. Fixed the SDK mock contract, error state, associated labels and input-to-preview capability guidance. No OCR added.
+- Updated compatible dependencies: Hono 4.13.12, Vitest/mocker 4.1.11, brace-expansion 1.1.21, js-yaml 4.3.2. Audit: zero known vulnerabilities. Maintained docs now distinguish 2D, frozen 3D, ordinal Days, offline evaluation and unstarted Kotlin stages.
+- Verification: check PASS; 20 files / 187 unit tests PASS; 12 offline guide fixtures PASS; full E2E 25 PASS / 15 platform-scoped skips; final route error-check E2E 1 PASS. Real AMap desktop/mobile rendered five roads with native white arrows and correct selection/clearing, zero errors and one SDK Canvas2D performance warning. AI input desktop/mobile screenshots reviewed, zero errors.
+- Review and limits: see `docs/engineering/2d-conformance-review-2026-10-02.md` for sources, defect closure and external screenshot paths. No current LIVE DeepSeek / CI / container / release approval claim. Existing dirty work preserved; no credentials, sealed 3D or release manifest changed. Temporary local verification server stopped after review.
+
+## 2026-09-28 — Live AMap CSP repair
+
+- Fix: allow mapplugin.amap.com only in script-src and webapi.amap.com in connect-src; extend the existing CSP integration assertion for both directives.
+- Verification: server integration tests passed (32 tests); npm run check and git diff --check passed. Real SDK at localhost:8080 rendered on 1440x900 and 390x844, with 16 itinerary cards and selected-card/map interaction; no CSP violations or console errors. Mobile screenshot was recaptured after tiles settled and visually inspected.
+- Remaining observations: SDK Canvas2D performance warning; some tile requests aborted during view changes. Screenshots: external visual-audit/after/live-map-1440.png and live-map-390.png. No mocks, credential edits, 3D activation, Kotlin implementation or publication.
+
+## 2026-09-28 — Responsive visual closure
+
+- Plan and fixes: constrain JSON card grid tracks; share a 360px-minimum/35% rail between homepage and workbenches; wrap closure revision text; use the existing paper background and explicit flat cards; move mobile guide controls above full-width editors. Tablet import actions stack to avoid cramped button labels.
+- Visual acceptance: 36 screenshots at 1440x900, 768x900, 390x844 and 320x844. Mobile JSON cards now measure 362px/292px instead of 598px; tablet rails all measure 360px; desktop rails remain 504px; the 320px review and guide preview have no global or inspected nested overflow. All four captures recorded zero page errors and console warnings/errors.
+- Actual screenshot review caught two gaps after the first fix: a long revision still expanded the closure card's internal track, and the 320px guide title/compare grids still expanded internally. Both were fixed and regression assertions now check nested bounds, not just document scrollWidth.
+- Verification: npm run check, npm test (19 files / 181 tests), git diff --check passed. Scoped Playwright: 10 passed / 4 skipped; two skips avoid duplicate mobile-project execution of explicit four-viewport tests and two are existing desktop-only AI/share-option flows. Import/edit/save/reload/share/download, cancel-without-replacement and mobile draft-note preservation passed.
+- Environment and scope: localhost:8080, Chromium; Browser skill/runtime not exposed in this session, so regular Playwright used. Providers mocked; the review preview is generated with updated source from the historical manifest without rewriting release evidence. No credentials, archived 3D, Kotlin implementation, commits or external releases changed.
+
+## 2026-09-28 — Close confirmed pre-migration bloat issues
+
+- Root causes: `console-log-json` had no active consumers; guide matching imposed 220ms + 80ms per place + 180ms solely to expose progress states; workspace share styling overrode the obsolete share-dialog block instead of replacing it.
+- Fixes: removed the unused package and its three exclusive optional/transitive lock entries; removed presentation-only sleeps while preserving progress, 8s request timeout and cancellation; consolidated share CSS into one base definition and retained mobile overrides, removing obsolete dialog bounds and unused URL-input styles.
+- Verification: new timer regression failed before the fix with `[220, 8000, 80, 8000, 80, 180]` and passed afterward with `[8000, 8000]`; `npm run check` passed; `npm test` passed (19 files / 181 tests); scoped Playwright guide/share scenarios passed (8 passed, 2 existing desktop-only skips). Six desktop/mobile share-workbench screenshots exactly matched the pre-cleanup screenshots.
+- Browser QA: localhost:8080, Chromium 1280×720 and Pixel 5 393×851; page identity, nonblank content, no error overlay, console errors, screenshots and import/edit/persist/download interactions passed. Browser plugin unavailable, regular Playwright used. AI/POI providers mocked; actual provider speed is not claimed.
+- Scope: existing sample fixes retained; no global configuration, credential, archive/3D, Kotlin implementation or publication changes. Lockfile refreshed offline with scripts disabled; installed node_modules was not pruned.
+
+## 2026-09-28 — Synthetic travel samples and Kotlin migration baseline
+
+- Expected: three explicitly synthetic guides/images and a schema-v5 workspace; Web import/edit/persist/share works on desktop and mobile; Kotlin work remains a phased plan.
+- Observed: three routes, five days, seventeen places parsed; six Playwright scenarios passed at 1280×720 and 393×851 with screenshot and downloaded-PNG attachments. Built-in image_gen generated three posters; prompts and PNGs are in `work/user-simulation/`.
+- Failures resolved: editor silently rejected edits without coordinates; mobile grid tracks let the preview cover download controls; sharing an unresolved trip drew the default Beijing map. Fixed only those observed paths, with regression coverage in the existing smoke suite.
+- Verification: `npm run check`; `npm test` (19 files / 180 tests); `node node_modules/@playwright/test/cli.js test tests/e2e/smoke.spec.js --grep 'synthetic user route' --workers 2` (6 passed); workspace parsed using `parseWorkspaceImport`; `git diff --check`.
+- Boundaries: Browser plugin not available, so regular Playwright used. Map/POI are mocked and remain unresolved; no DeepSeek extraction, OCR, real-user metrics, Android build or native-device acceptance claimed. No credential changes, external publication or 3D activation.
+
 Use this file to record verification for meaningful project changes. Keep entries short, factual, and tied to commands, screenshots, or file checks.
 
 ## Entry Template

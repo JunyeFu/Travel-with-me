@@ -1,8 +1,10 @@
 # API Reference
 
-> **辅助文件** | 权威开发文档: [DEVELOPMENT.md](../../DEVELOPMENT.md)
+> 当前 2D 接口参考 | 实现边界见 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 
 Travel With Me 的 BFF 层提供以下端点：
+
+公网演示设置 `DEMO_MODE=true` 后，除 `/healthz`、`/readyz` 外全部页面和接口需要 Basic Auth；必须设置 `DEMO_USERNAME`、`DEMO_PASSWORD` 并关闭 RAG。演示 `/readyz` 同时要求地图、AI 和口令完整。`/_ai/extract-guide` 额外限制全局每进程每小时 12 次，与客户端 IP 无关。部署环境与数据边界见 [公网演示](../operations/public-demo.md)。
 
 > 2026-08-12：3D 已封存，`/_elevation` 与 `/_geo-assets` 已从活动服务移除并返回 404。下方同名章节只保留历史契约，不能作为当前 API 使用。
 
