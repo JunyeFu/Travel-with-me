@@ -11,6 +11,25 @@ afterEach(() => {
 });
 
 describe('AMap native arrow shader repair', () => {
+  it('waits for the native context before drawing, and discards stale map-ready callbacks', () => {
+    vi.stubGlobal('document', { getElementById: () => ({ dataset: {} }) });
+    let context;
+    const map = { getContext: () => context, on: vi.fn(), off: vi.fn() };
+    setMap(map);
+    setAMap({});
+    drawRoutePaths({ id: 'waiting-context' }, []);
+    expect(getAppState().routeOverlays.has('waiting-context')).toBe(false);
+    context = { gl: { shaderSource: vi.fn() } };
+    map.on.mock.calls[0][1]();
+    expect(getAppState().routeOverlays.has('waiting-context')).toBe(true);
+    expect(map.off).toHaveBeenCalledWith('complete', map.on.mock.calls[0][1]);
+    context = undefined;
+    drawRoutePaths({ id: 'stale-context' }, []);
+    getAppState().routePlanningSerial++;
+    context = { gl: { shaderSource: vi.fn() } };
+    map.on.mock.calls[1][1]();
+    expect(getAppState().routeOverlays.has('stale-context')).toBe(false);
+  });
   it('corrects only the known clamp expression on the map context', () => {
     vi.stubGlobal('document', { getElementById: () => ({ dataset: {} }) });
     const shaderSource = vi.fn();

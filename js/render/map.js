@@ -46,10 +46,9 @@ export function initMap(AMap) {
   return { map, infoWindow };
 }
 
-function fixAMapArrowShader(map) {
+function fixAMapArrowShader(gl) {
   // 高德 2.0 原生箭头 GLSL 的 clamp 参数颠倒，在 SwiftShader 上采样为空。
   // 只修正此地图 WebGL 上下文的已知错误表达式，不改 SDK 文件或其他着色器。
-  const gl = map.getContext().gl;
   if (arrowShaderContexts.has(gl)) return;
   const shaderSource = gl.shaderSource;
   gl.shaderSource = function (shader, source) {
@@ -365,7 +364,21 @@ const PULSE_DURATION_MS = 1400;
 export function drawRoutePaths(segment, paths, dashed = false) {
   const state = getAppState();
   if (!state.map) return;
-  if (!state.AMap.__fallback) fixAMapArrowShader(state.map);
+  if (!state.AMap.__fallback) {
+    const gl = state.map.getContext()?.gl;
+    if (!gl) {
+      const map = state.map,
+        serial = state.routePlanningSerial;
+      const complete = () => {
+        map.off('complete', complete);
+        if (state.map === map && state.routePlanningSerial === serial)
+          drawRoutePaths(segment, paths, dashed);
+      };
+      map.on('complete', complete);
+      return;
+    }
+    fixAMapArrowShader(gl);
+  }
   const polylines = [];
   paths.forEach(path => {
     if (path.length < 2) return;
