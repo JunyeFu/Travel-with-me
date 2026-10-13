@@ -194,7 +194,7 @@ async function boot() {
 
     initMap(AMap);
     createAllMarkers();
-    selectDay('all', { fitView: true, planRoutes: false });
+    selectDay(getAppState().activeDayId, { fitView: true, planRoutes: false });
     syncEmptyWorkspaceUI();
 
     // 后台异步校准坐标，完成后重新设置当前选中的日期
@@ -215,7 +215,7 @@ async function bootFallbackMap() {
   setAMap(AMap);
   initMap(AMap);
   createAllMarkers();
-  selectDay('all', { fitView: true, planRoutes: false });
+  selectDay(getAppState().activeDayId, { fitView: true, planRoutes: false });
   syncEmptyWorkspaceUI();
   await resolveAllLocations();
   if (hasActiveTrip() && !getAppState().selectedTarget) {

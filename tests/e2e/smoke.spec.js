@@ -393,6 +393,25 @@ test('appointment waiting is displayed as an ascending interval across stay scen
   );
 });
 
+test('a day selected before the map loads remains selected after SDK readiness', async ({
+  page
+}) => {
+  await installMockAMap(page);
+  await page.addInitScript(() => {
+    const load = window.AMapLoader.load;
+    window.AMapLoader.load = (...args) =>
+      new Promise(resolve => {
+        window.releaseMap = () => resolve(load(...args));
+      });
+  });
+  await seedWorkspace(page, SEEDED_WORKSPACE, true);
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: 'Day 1', exact: true }).click();
+  await page.evaluate(() => window.releaseMap());
+  await expect(page.locator('#status-panel')).toContainText('全部地点已显示');
+  await expect(page.getByRole('button', { name: 'Day 1', exact: true })).toHaveClass(/active/);
+});
+
 async function openComputedAssessment(page) {
   await installMockAMap(page);
   await seedWorkspace(page, SEEDED_WORKSPACE, true);

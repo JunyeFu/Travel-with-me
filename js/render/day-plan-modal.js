@@ -419,7 +419,7 @@ export function refreshDayPlan(day) {
     <div class="plan-totals"><span>交通${result.completion ? '' : '已知小计'}<strong>${Math.ceil(result.travelSeconds / 60)} 分钟</strong></span><span>活动${result.completion ? '' : '已知小计'}<strong>${minRange(result.activity)} 分钟</strong></span><span>等待${result.completion ? '' : '已知小计'}<strong>${minRange(result.waiting)} 分钟</strong></span></div>
     ${result.slack ? `<p>余量 ${result.slack.map(x => Math.floor(x / 60)).join('—')} 分钟</p>` : '<button type="button" class="text-button plan-find-missing">定位缺项</button>'}
     ${result.conflicts.length ? '<p class="plan-conflicts">固定时间冲突：' + result.conflicts.map(c => escapeHTML(day.events.find(e => e.id === c.eventId)?.title || '地点') + ' 可能迟到 ' + Math.ceil(Math.max(...c.late) / 60) + ' 分钟').join('；') + '</p>' : ''}
-    <details class="plan-timeline"><summary>展开时间轴</summary><ol>${result.stops.map(stop => `<li>${escapeHTML(day.events.find(e => e.id === stop.eventId)?.title || '地点')}：到达 ${formatPlanRange(stop.arrival)}；开始 ${formatPlanRange(stop.start)}；离开 ${formatPlanRange(stop.departure)}；等待 ${stop.waiting.map(x => (x == null ? '待计算' : Math.ceil(x / 60) + '分')).join('—')}</li>`).join('')}</ol></details></section>`;
+    <details class="plan-timeline"><summary>展开时间轴</summary><ol>${result.stops.map(stop => `<li>${escapeHTML(day.events.find(e => e.id === stop.eventId)?.title || '地点')}：到达 ${formatPlanRange(stop.arrival)}；开始 ${formatPlanRange(stop.start)}；离开 ${formatPlanRange(stop.departure)}；等待 ${stop.waiting.includes(null) ? '待计算' : minRange(stop.waiting) + '分'}</li>`).join('')}</ol></details></section>`;
   group.querySelector('.plan-find-missing')?.addEventListener('click', () => {
     const field = [
       ...group.querySelectorAll(
